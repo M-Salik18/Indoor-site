@@ -17,10 +17,19 @@ import {
   Sparkles,
   Filter,
   Check,
-  AlertCircle
+  AlertCircle,
+  Key,
+  UserCheck,
+  Eye,
+  EyeOff,
+  Trash2,
+  Lock,
+  ExternalLink
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 export default function SuperAdminView() {
+  const router = useRouter();
   const { 
     venues, 
     facilities, 
@@ -31,10 +40,15 @@ export default function SuperAdminView() {
     getCommissionRecords,
     toggleVenueActive,
     addVenue,
-    openBookingModal
+    openBookingModal,
+    adminAccounts,
+    createAdminAccount,
+    deleteAdminAccount,
+    updateAdminAccount,
+    loginAdmin
   } = useDemo();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'venues' | 'commissions'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'venues' | 'commissions' | 'accounts'>('overview');
   
   // Commission filters
   const [filterVenueId, setFilterVenueId] = useState<string>('all');
@@ -48,6 +62,17 @@ export default function SuperAdminView() {
   const [newVenueAddress, setNewVenueAddress] = useState('');
   const [newVenuePhone, setNewVenuePhone] = useState('+94 11 200 9988');
   const [newVenuePrice, setNewVenuePrice] = useState(2500);
+
+  // Add Venue Admin Account Modal & State
+  const [isAddAccountOpen, setIsAddAccountOpen] = useState(false);
+  const [accIndoorName, setAccIndoorName] = useState('');
+  const [accUsername, setAccUsername] = useState('');
+  const [accPassword, setAccPassword] = useState('');
+  const [accVenueId, setAccVenueId] = useState('venue-axion');
+  const [accOwnerName, setAccOwnerName] = useState('');
+  const [accPhone, setAccPhone] = useState('');
+  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
+  const [accountBannerMsg, setAccountBannerMsg] = useState('');
 
   const commissionRecords = getCommissionRecords();
 
@@ -104,6 +129,32 @@ export default function SuperAdminView() {
     setNewVenueCity('');
   };
 
+  const handleCreateAccount = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!accIndoorName.trim() || !accUsername.trim() || !accPassword.trim()) return;
+
+    const linkedVenue = venues.find(v => v.id === accVenueId) || venues[0];
+    const newAccount = createAdminAccount({
+      indoorName: accIndoorName.trim(),
+      username: accUsername.trim().toLowerCase(),
+      password: accPassword.trim(),
+      venueId: accVenueId || (linkedVenue ? linkedVenue.id : 'venue-axion'),
+      role: 'venue_admin',
+      ownerName: accOwnerName.trim() || `${accIndoorName.trim()} Manager`,
+      phone: accPhone.trim() || (linkedVenue ? linkedVenue.phone : '+94 77 123 4567'),
+      status: 'active',
+    });
+
+    setAccountBannerMsg(`Account created successfully for "${newAccount.indoorName}"! Username: ${newAccount.username} | Password: ${newAccount.password}`);
+    setIsAddAccountOpen(false);
+    setActiveTab('accounts');
+    setAccIndoorName('');
+    setAccUsername('');
+    setAccPassword('');
+    setAccOwnerName('');
+    setAccPhone('');
+  };
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 py-6 sm:py-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
@@ -130,7 +181,15 @@ export default function SuperAdminView() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setIsAddAccountOpen(true)}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition-all flex items-center gap-1.5"
+            >
+              <Key className="w-4 h-4" />
+              <span>Create Venue Admin Account</span>
+            </button>
+
             <button
               onClick={() => setIsAddVenueOpen(true)}
               className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-md shadow-purple-600/20 transition-all flex items-center gap-1.5"
@@ -147,6 +206,7 @@ export default function SuperAdminView() {
             { id: 'overview', label: 'Platform Performance' },
             { id: 'venues', label: `Partner Venues (${venues.length})` },
             { id: 'commissions', label: `Commission Ledger (${commissionRecords.length})` },
+            { id: 'accounts', label: `Venue Admin Accounts (${adminAccounts.filter(a => a.role === 'venue_admin').length})` },
           ].map((tab) => {
             const isActive = activeTab === tab.id;
             return (
@@ -268,8 +328,8 @@ export default function SuperAdminView() {
                     className="accent-purple-500 w-full cursor-pointer h-2 bg-slate-950 rounded-lg"
                   />
                   <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                    <span>5% (Low pilot)</span>
-                    <span>10% (Default baseline)</span>
+                    <span className="text-purple-400 font-bold">5% (Default Platform Rate)</span>
+                    <span>10%</span>
                     <span>15%</span>
                     <span>20%</span>
                     <span>25% (Premium)</span>
@@ -526,6 +586,207 @@ export default function SuperAdminView() {
           </div>
         )}
 
+        {/* ================= TAB 4: VENUE ADMIN ACCOUNTS ================= */}
+        {activeTab === 'accounts' && (
+          <div className="space-y-6">
+            
+            {/* Banner Notice */}
+            {accountBannerMsg && (
+              <div className="p-4 rounded-2xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs flex items-center justify-between gap-3 animate-in fade-in">
+                <div className="flex items-center gap-2.5">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                  <span>{accountBannerMsg}</span>
+                </div>
+                <button
+                  onClick={() => setAccountBannerMsg('')}
+                  className="text-emerald-400 hover:text-white text-xs font-bold px-2 py-1 rounded-lg bg-emerald-900/60"
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* Header info card */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <span className="text-xs font-bold uppercase tracking-widest text-emerald-400 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Multi-Tenant Indoor Access Control
+                </span>
+                <h3 className="text-lg font-bold text-white mt-1">
+                  Indoor Venue Admin Accounts
+                </h3>
+                <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
+                  Only Platform Super Admins can issue accounts. After selling our system to an indoor facility, create their dedicated login below. Each indoor owner accesses only their specific venue data, completely isolated from other venues.
+                </p>
+              </div>
+
+              <button
+                onClick={() => setIsAddAccountOpen(true)}
+                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md shadow-emerald-600/30 transition-all flex items-center gap-1.5 shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create Venue Account</span>
+              </button>
+            </div>
+
+            {/* Accounts Table */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+              <div className="p-5 border-b border-slate-800 flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-white">Registered Admin Credentials</h4>
+                  <p className="text-xs text-slate-400">Total accounts: {adminAccounts.length} (including Super Admin)</p>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="py-3 px-4">Indoor / Venue Name</th>
+                      <th className="py-3 px-4">Admin Username</th>
+                      <th className="py-3 px-4">Password</th>
+                      <th className="py-3 px-4">Role & Linked Venue</th>
+                      <th className="py-3 px-4">Owner / Contact</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-medium">
+                    {adminAccounts.map((account) => {
+                      const isRevealed = !!revealedPasswords[account.id];
+                      const isSuper = account.role === 'super_admin';
+                      const linkedV = venues.find(v => v.id === account.venueId);
+
+                      return (
+                        <tr key={account.id} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-2.5">
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                                isSuper ? 'bg-purple-600/20 text-purple-400' : 'bg-blue-600/20 text-blue-400'
+                              }`}>
+                                {isSuper ? <ShieldCheck className="w-4 h-4" /> : <Building2 className="w-4 h-4" />}
+                              </div>
+                              <div>
+                                <span className="font-bold text-white block">{account.indoorName}</span>
+                                <span className="text-[10px] text-slate-500 font-mono">ID: {account.id}</span>
+                              </div>
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4 font-mono font-bold text-emerald-400">
+                            {account.username}
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-1.5 font-mono">
+                              <span className="bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-800 text-slate-200">
+                                {isRevealed ? account.password : '••••••••'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setRevealedPasswords(prev => ({ ...prev, [account.id]: !prev[account.id] }))}
+                                className="p-1 rounded text-slate-400 hover:text-white"
+                                title={isRevealed ? 'Mask password' : 'Show password'}
+                              >
+                                {isRevealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            {isSuper ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-800/50">
+                                Platform Super Admin
+                              </span>
+                            ) : (
+                              <div>
+                                <span className="text-slate-200 block font-semibold">
+                                  {linkedV ? linkedV.name : account.venueId}
+                                </span>
+                                <span className="text-[10px] text-slate-500">
+                                  {linkedV ? `${linkedV.district} District` : 'Private Portal'}
+                                </span>
+                              </div>
+                            )}
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            <div className="text-xs">
+                              <span className="text-slate-200 block">{account.ownerName || '—'}</span>
+                              <span className="text-[10px] text-slate-400">{account.phone || '—'}</span>
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                              account.status === 'active'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            }`}>
+                              {account.status}
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {!isSuper && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    loginAdmin(account.username, account.password);
+                                    router.push('/admin/venue');
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg bg-blue-600/30 hover:bg-blue-600 text-blue-300 hover:text-white text-[11px] font-bold transition-all flex items-center gap-1"
+                                  title="Test logging in as this venue admin"
+                                >
+                                  <span>Log In</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </button>
+                              )}
+
+                              {!isSuper && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    updateAdminAccount({
+                                      ...account,
+                                      status: account.status === 'active' ? 'suspended' : 'active'
+                                    });
+                                  }}
+                                  className="p-1 rounded text-slate-400 hover:text-amber-300"
+                                  title={account.status === 'active' ? 'Suspend Account' : 'Activate Account'}
+                                >
+                                  <Lock className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+
+                              {!isSuper && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm(`Delete admin account for "${account.indoorName}"?`)) {
+                                      deleteAdminAccount(account.id);
+                                    }
+                                  }}
+                                  className="p-1 rounded text-slate-400 hover:text-rose-400"
+                                  title="Delete Account"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
 
       {/* Register Venue Modal */}
@@ -623,6 +884,148 @@ export default function SuperAdminView() {
                   className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold shadow-md shadow-purple-600/20"
                 >
                   Create Venue
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create Venue Admin Account Modal */}
+      {isAddAccountOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150 text-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+                <Key className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Create Venue Admin Account</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Generate dedicated credentials after onboarding or selling system to an indoor centre.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleCreateAccount} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Indoor / Venue Name *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. AXION – Ambetenne or Royal Turf"
+                    value={accIndoorName}
+                    onChange={(e) => {
+                      setAccIndoorName(e.target.value);
+                      if (!accUsername) {
+                        setAccUsername(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''));
+                      }
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Admin Username *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. axion or royalturf"
+                    value={accUsername}
+                    onChange={(e) => setAccUsername(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-emerald-500"
+                    required
+                  />
+                  <span className="text-[10px] text-slate-500 mt-1 block">Used by indoor owner to login</span>
+                </div>
+
+                <div>
+                  <label className="block font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Account Password *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. turf2026"
+                    value={accPassword}
+                    onChange={(e) => setAccPassword(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-mono placeholder:text-slate-600 focus:outline-none focus:border-emerald-500"
+                    required
+                  />
+                  <span className="text-[10px] text-slate-500 mt-1 block">Give this to the venue owner</span>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Link to Indoor Venue Facility *
+                  </label>
+                  <select
+                    value={accVenueId}
+                    onChange={(e) => {
+                      setAccVenueId(e.target.value);
+                      const v = venues.find(item => item.id === e.target.value);
+                      if (v && !accIndoorName) {
+                        setAccIndoorName(v.name);
+                        setAccUsername(v.slug.replace(/[^a-z0-9]/g, ''));
+                      }
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    {venues.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} ({v.district} – {v.city})
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[10px] text-slate-500 mt-1 block">
+                    Venue admin will be strictly locked to manage only this venue&apos;s bookings and pitches.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Owner / Manager Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Rifkhan Nizam"
+                    value={accOwnerName}
+                    onChange={(e) => setAccOwnerName(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Contact Phone
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. +94 81 230 4567"
+                    value={accPhone}
+                    onChange={(e) => setAccPhone(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white placeholder:text-slate-600 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-slate-800 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setIsAddAccountOpen(false)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold shadow-lg shadow-emerald-600/30 flex items-center gap-1.5"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Create Account & Issue Credentials</span>
                 </button>
               </div>
             </form>

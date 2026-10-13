@@ -2,10 +2,10 @@ import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { DemoProvider } from '@/context/DemoContext';
-import DemoRoleBar from '@/components/DemoRoleBar';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import BookingModal from '@/components/BookingModal';
+import React, { Suspense } from 'react';
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -22,8 +22,6 @@ export const metadata: Metadata = {
   description: 'Discover and book indoor futsal turfs, badminton courts, cricket nets, and snooker lounges across Sri Lanka. Instant reservations, pay at venue.',
 };
 
-import React, { Suspense } from 'react';
-
 export default function RootLayout({
   children,
 }: {
@@ -32,14 +30,19 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
+      suppressHydrationWarning
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-slate-950 text-slate-100 selection:bg-emerald-500 selection:text-slate-950 font-sans">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('courtly_theme')||'dark';document.documentElement.classList.remove('dark','light');document.documentElement.classList.add(t);document.documentElement.style.colorScheme=t;}catch(e){}})()`,
+          }}
+        />
+      </head>
+      <body className="min-h-full flex flex-col bg-slate-950 text-slate-100 selection:bg-emerald-500 selection:text-slate-950 font-sans transition-colors duration-200">
         <DemoProvider>
-          <Suspense fallback={<div className="h-9 bg-slate-950" />}>
-            <DemoRoleBar />
-          </Suspense>
-          <Suspense fallback={<div className="h-16 bg-slate-900" />}>
+          <Suspense fallback={<div className="h-16 sm:h-20 bg-slate-900" />}>
             <Navbar />
           </Suspense>
           <div className="flex-1 flex flex-col">

@@ -113,4 +113,17 @@ export interface TimeSlot {
   price: number;
 }
 
+export interface AdminAccount {
+  id: string;
+  username: string;
+  password: string;
+  indoorName: string;
+  venueId: string;
+  role: 'venue_admin' | 'super_admin';
+  ownerName?: string;
+  phone?: string;
+  createdAt: string;
+  status: 'active' | 'suspended';
+}
+
 export type DemoRole = 'customer' | 'venue_admin' | 'super_admin';

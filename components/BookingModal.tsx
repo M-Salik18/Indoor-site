@@ -44,7 +44,7 @@ export default function BookingModal() {
   const [selectedVenueId, setSelectedVenueId] = useState<string>('venue-axion');
   const [selectedFacilityId, setSelectedFacilityId] = useState<string>('');
   const [selectedDate, setSelectedDate] = useState<string>('');
-  const [selectedTimeSlot, setSelectedTimeSlot] = useState<string | null>(null);
+  const [selectedTimeSlots, setSelectedTimeSlots] = useState<string[]>([]);
   
   // Customer details
   const [customerName, setCustomerName] = useState('Kavindu Senanayake');
@@ -94,7 +94,7 @@ export default function BookingModal() {
       // Default date to today
       const todayStr = new Date().toISOString().split('T')[0];
       setSelectedDate(todayStr);
-      setSelectedTimeSlot(null);
+      setSelectedTimeSlots([]);
       setCurrentStep(1);
       setCreatedBooking(null);
       setEnteredOtp('');
@@ -112,13 +112,13 @@ export default function BookingModal() {
     } else {
       setSelectedFacilityId('');
     }
-    setSelectedTimeSlot(null);
+    setSelectedTimeSlots([]);
   };
 
-  // When facility changes, clear slot
+  // When facility changes, clear slots
   const handleFacilitySelect = (fId: string) => {
     setSelectedFacilityId(fId);
-    setSelectedTimeSlot(null);
+    setSelectedTimeSlots([]);
   };
 
   if (!isBookingModalOpen) return null;
@@ -128,16 +128,90 @@ export default function BookingModal() {
   const availableFacilities = facilities.filter(f => f.venueId === selectedVenueId && f.isActive);
   const currentFacility = availableFacilities.find(f => f.id === selectedFacilityId) || availableFacilities[0];
   
-  // Available time slots for date + facility
+  // Available time slots for date + facility (30-minute intervals)
   const slots = currentFacility && selectedDate 
     ? getSlotsForFacilityAndDate(currentFacility.id, selectedDate)
     : [];
 
-  const selectedSlotObj = slots.find(s => s.time === selectedTimeSlot);
+  const selectedSlotObjs = slots.filter(s => selectedTimeSlots.includes(s.time));
+  const sortedSelectedSlots = [...selectedTimeSlots].sort();
+  const firstSlotObj = slots.find(s => s.time === sortedSelectedSlots[0]);
+  const lastSlotObj = slots.find(s => s.time === sortedSelectedSlots[sortedSelectedSlots.length - 1]);
 
-  // Calculate pricing
-  const hourlyRate = selectedSlotObj ? selectedSlotObj.price : currentVenue?.startingPricePerHour || 2500;
-  const totalPrice = hourlyRate; // 1-hour slot default
+  const startTimeStr = firstSlotObj ? firstSlotObj.time : '';
+  const endTimeStr = lastSlotObj ? lastSlotObj.endTime : '';
+  const totalDurationHours = selectedTimeSlots.length * 0.5;
+  const totalPrice = selectedSlotObjs.reduce((acc, s) => acc + s.price, 0);
+
+  const formatTimeStr = (t: string) => {
+    if (!t) return '';
+    const [h, m = 0] = t.split(':').map(Number);
+    const period = h >= 12 && h < 24 ? 'PM' : 'AM';
+    const displayH = h === 0 || h === 24 ? 12 : h > 12 ? h - 12 : h;
+    const mStr = m === 0 ? ':00' : `:${m.toString().padStart(2, '0')}`;
+    return `${displayH}${mStr} ${period}`;
+  };
+
+  const formattedTimeRange = firstSlotObj && lastSlotObj
+    ? `${formatTimeStr(startTimeStr)} – ${formatTimeStr(endTimeStr)}`
+    : '';
+
+  // Slot toggle and multi-selection handler
+  const handleSlotClick = (slotTime: string) => {
+    if (selectedTimeSlots.length === 0) {
+      setSelectedTimeSlots([slotTime]);
+      return;
+    }
+
+    // If only one is selected and user clicks another slot
+    if (selectedTimeSlots.length === 1 && selectedTimeSlots[0] === slotTime) {
+      setSelectedTimeSlots([]);
+      return;
+    }
+
+    const availableSlotTimes = slots.filter(s => s.status !== 'booked').map(s => s.time);
+    const currentFirst = sortedSelectedSlots[0];
+
+    // If user clicks a slot after current first slot, select the contiguous range!
+    if (slotTime > currentFirst) {
+      const startIdx = slots.findIndex(s => s.time === currentFirst);
+      const endIdx = slots.findIndex(s => s.time === slotTime);
+      if (startIdx !== -1 && endIdx !== -1 && endIdx >= startIdx) {
+        const range = slots.slice(startIdx, endIdx + 1);
+        const allAvailable = range.every(s => s.status !== 'booked');
+        if (allAvailable) {
+          setSelectedTimeSlots(range.map(s => s.time));
+          return;
+        }
+      }
+    }
+
+    // Toggle or reset to single slot
+    if (selectedTimeSlots.includes(slotTime)) {
+      const remaining = selectedTimeSlots.filter(t => t !== slotTime);
+      setSelectedTimeSlots(remaining);
+    } else {
+      setSelectedTimeSlots([slotTime]);
+    }
+  };
+
+  // Quick duration preset helper
+  const handleApplyDurationPreset = (sessionsCount: number) => {
+    const baseStart = sortedSelectedSlots[0] || (slots.find(s => s.status === 'available')?.time);
+    if (!baseStart) return;
+
+    const startIdx = slots.findIndex(s => s.time === baseStart);
+    if (startIdx === -1) return;
+
+    const targetRange = slots.slice(startIdx, startIdx + sessionsCount);
+    const allAvailable = targetRange.length === sessionsCount && targetRange.every(s => s.status !== 'booked');
+
+    if (allAvailable) {
+      setSelectedTimeSlots(targetRange.map(s => s.time));
+    } else {
+      setSelectedTimeSlots([baseStart]);
+    }
+  };
 
   // Step 4 Validation
   const handleProceedFromCustomerDetails = () => {
@@ -165,10 +239,9 @@ export default function BookingModal() {
 
   // Step 6 Confirmation -> Create booking
   const handleConfirmBooking = () => {
-    if (!currentFacility || !selectedSlotObj) return;
+    if (!currentFacility || selectedTimeSlots.length === 0 || !firstSlotObj || !lastSlotObj) return;
 
-    const [startH] = selectedSlotObj.time.split(':').map(Number);
-    const endH = (startH + 1).toString().padStart(2, '0') + ':00';
+    const effectiveHourlyRate = totalDurationHours > 0 ? Math.round(totalPrice / totalDurationHours) : 2500;
 
     const newBk = addBooking({
       venueId: currentVenue.id,
@@ -177,16 +250,16 @@ export default function BookingModal() {
       facilityName: currentFacility.name,
       sport: currentFacility.sports[0] || 'Football',
       date: selectedDate,
-      startTime: selectedSlotObj.time,
-      endTime: endH,
-      durationHours: 1,
-      hourlyRate,
+      startTime: startTimeStr,
+      endTime: endTimeStr,
+      durationHours: totalDurationHours,
+      hourlyRate: effectiveHourlyRate,
       totalPrice,
       customerName: customerName.trim(),
       customerMobile: customerMobile.trim(),
       status: 'confirmed',
       paymentStatus: 'pending_at_venue',
-      notes: 'Customer booking created via online marketplace prototype.'
+      notes: `Multi-session court reservation: ${selectedTimeSlots.length} x 30-min sessions (${formattedTimeRange}).`
     });
 
     setCreatedBooking(newBk);
@@ -407,7 +480,7 @@ export default function BookingModal() {
                         type="button"
                         onClick={() => {
                           setSelectedDate(d.dateStr);
-                          setSelectedTimeSlot(null);
+                          setSelectedTimeSlots([]);
                         }}
                         className={`p-2.5 rounded-xl border text-center transition-all ${
                           isSelected 
@@ -427,15 +500,20 @@ export default function BookingModal() {
                 </div>
               </div>
 
-              {/* Time Slots Grid */}
+              {/* Time Slots Grid (30-Minute Sessions) */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    2. Select Time Slot ({currentFacility?.name})
-                  </label>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                  <div>
+                    <label className="text-xs font-bold text-slate-200 uppercase tracking-wider block">
+                      2. Select Booking Sessions ({currentFacility?.name})
+                    </label>
+                    <span className="text-[11px] text-slate-400">
+                      Each slot is 30 mins. Select multiple sessions for longer bookings (e.g. 6:00 PM – 8:00 PM or 8:00 PM – 10:30 PM).
+                    </span>
+                  </div>
                   
                   {/* Legend */}
-                  <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                  <div className="flex items-center gap-3 text-[11px] text-slate-400 shrink-0">
                     <span className="flex items-center gap-1">
                       <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/20 border border-emerald-500" />
                       Available
@@ -451,9 +529,40 @@ export default function BookingModal() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                {/* Quick Length Presets */}
+                <div className="mb-3.5 p-2.5 rounded-xl bg-slate-950 border border-slate-800/80 flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] font-semibold text-slate-400 mr-1">
+                    Quick Duration:
+                  </span>
+                  {[
+                    { label: '30 mins (1 session)', sessions: 1 },
+                    { label: '1 hour (2 sessions)', sessions: 2 },
+                    { label: '1.5 hrs (3 sessions)', sessions: 3 },
+                    { label: '2 hours (4 sessions)', sessions: 4 },
+                    { label: '2.5 hrs (5 sessions)', sessions: 5 },
+                    { label: '3 hours (6 sessions)', sessions: 6 },
+                  ].map((preset) => {
+                    const isActive = selectedTimeSlots.length === preset.sessions;
+                    return (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => handleApplyDurationPreset(preset.sessions)}
+                        className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
+                          isActive
+                            ? 'bg-emerald-500 text-slate-950 font-bold shadow-sm'
+                            : 'bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-850 border border-slate-800'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 max-h-72 overflow-y-auto pr-1">
                   {slots.map((slot) => {
-                    const isSelected = selectedTimeSlot === slot.time;
+                    const isSelected = selectedTimeSlots.includes(slot.time);
                     const isBooked = slot.status === 'booked';
 
                     return (
@@ -461,12 +570,12 @@ export default function BookingModal() {
                         key={slot.time}
                         type="button"
                         disabled={isBooked}
-                        onClick={() => !isBooked && setSelectedTimeSlot(slot.time)}
-                        className={`p-3 rounded-xl border text-left transition-all relative ${
+                        onClick={() => !isBooked && handleSlotClick(slot.time)}
+                        className={`p-2.5 rounded-xl border text-left transition-all relative ${
                           isBooked 
                             ? 'bg-slate-950/60 border-slate-800/80 text-slate-600 cursor-not-allowed line-through'
                             : isSelected 
-                              ? 'bg-emerald-500 border-emerald-400 text-slate-950 font-bold shadow-lg shadow-emerald-500/20 scale-[1.02]'
+                              ? 'bg-emerald-500 border-emerald-400 text-slate-950 font-bold shadow-md shadow-emerald-500/20 scale-[1.01]'
                               : 'bg-slate-950 border-slate-800 hover:border-emerald-500/50 text-slate-200'
                         }`}
                       >
@@ -475,7 +584,7 @@ export default function BookingModal() {
                             {slot.displayTime}
                           </span>
                           {isBooked ? (
-                            <span className="text-[10px] uppercase font-semibold text-rose-500/80 no-underline">
+                            <span className="text-[9px] uppercase font-bold text-rose-500/80 no-underline">
                               Booked
                             </span>
                           ) : (
@@ -484,33 +593,40 @@ export default function BookingModal() {
                             </span>
                           )}
                         </div>
-                        <span className={`text-[10px] block mt-0.5 ${isSelected ? 'text-slate-900' : 'text-slate-400'}`}>
-                          60 mins session
-                        </span>
+                        <div className="flex items-center justify-between mt-1 text-[10px]">
+                          <span className={isSelected ? 'text-slate-900 font-medium' : 'text-slate-500'}>
+                            until {slot.endTime}
+                          </span>
+                          <span className={`text-[9px] px-1.5 py-0.2 rounded font-semibold ${isSelected ? 'bg-slate-950/20 text-slate-950' : 'bg-slate-900 text-slate-400'}`}>
+                            30m
+                          </span>
+                        </div>
                       </button>
                     );
                   })}
                 </div>
               </div>
 
-              {/* Dynamic Price Display */}
-              {selectedTimeSlot && selectedSlotObj && (
-                <div className="p-3.5 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-emerald-400" />
+              {/* Dynamic Price & Time Window Display */}
+              {selectedTimeSlots.length > 0 && firstSlotObj && lastSlotObj && (
+                <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0">
+                      <Clock className="w-5 h-5" />
+                    </div>
                     <div>
-                      <span className="text-xs font-bold text-white block">
-                        Selected: {selectedSlotObj.displayTime} on {selectedDate}
+                      <span className="text-sm font-black text-white block">
+                        {formattedTimeRange} ({totalDurationHours} Hour{totalDurationHours === 1 ? '' : 's'})
                       </span>
-                      <span className="text-[11px] text-slate-400">
-                        {currentFacility?.name} • Rate calculated using venue pricing rule
+                      <span className="text-xs text-slate-400">
+                        {selectedDate} • {selectedTimeSlots.length} x 30-min sessions at {currentFacility?.name}
                       </span>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <span className="text-xs text-slate-400 uppercase tracking-wider block">Total</span>
-                    <span className="text-base font-black text-emerald-400">
-                      LKR {selectedSlotObj.price.toLocaleString()}
+                  <div className="text-left sm:text-right border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-800">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block font-semibold">Total Amount</span>
+                    <span className="text-lg font-black text-emerald-400">
+                      LKR {totalPrice.toLocaleString()}
                     </span>
                   </div>
                 </div>
@@ -681,12 +797,16 @@ export default function BookingModal() {
                     <strong className="text-slate-200">{selectedDate}</strong>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Time Slot</span>
-                    <strong className="text-slate-200">{selectedSlotObj?.displayTime} (60 mins)</strong>
+                    <span className="text-slate-500 block">Reserved Time Slot</span>
+                    <strong className="text-emerald-400 font-bold">
+                      {formattedTimeRange} ({totalDurationHours} hrs • {selectedTimeSlots.length} sessions)
+                    </strong>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Hourly Rate</span>
-                    <strong className="text-slate-200">LKR {hourlyRate.toLocaleString()}</strong>
+                    <span className="text-slate-500 block">Session Breakdown</span>
+                    <strong className="text-slate-200">
+                      {selectedTimeSlots.length} x 30-min sessions
+                    </strong>
                   </div>
                 </div>
 
@@ -770,8 +890,8 @@ export default function BookingModal() {
                     <strong className="text-white">{createdBooking.facilityName}</strong>
                   </div>
                   <div>
-                    <span className="text-slate-500 block">Date & Time</span>
-                    <strong className="text-white">{createdBooking.date} @ {createdBooking.startTime}</strong>
+                    <span className="text-slate-500 block">Date & Time Range</span>
+                    <strong className="text-emerald-300">{createdBooking.date} • {createdBooking.startTime} – {createdBooking.endTime} ({createdBooking.durationHours} hrs)</strong>
                   </div>
                   <div>
                     <span className="text-slate-500 block">Venue Phone</span>
@@ -869,10 +989,10 @@ export default function BookingModal() {
               <button
                 type="button"
                 onClick={() => setCurrentStep(4)}
-                disabled={!selectedTimeSlot}
+                disabled={selectedTimeSlots.length === 0}
                 className="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md shadow-emerald-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
               >
-                <span>Customer Details</span>
+                <span>Customer Details ({selectedTimeSlots.length} session{selectedTimeSlots.length === 1 ? '' : 's'})</span>
                 <ChevronRight className="w-4 h-4" />
               </button>
             )}

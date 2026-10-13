@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 
 export default function DemoRoleBar() {
-  const { activeRole, setActiveRole, resetToDefaults, openBookingModal } = useDemo();
+  const { activeRole, setActiveRole, resetToDefaults, openBookingModal, currentAdmin, loginAdmin } = useDemo();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -25,8 +25,14 @@ export default function DemoRoleBar() {
         router.push('/');
       }
     } else if (role === 'venue_admin') {
+      if (!currentAdmin || currentAdmin.role !== 'venue_admin') {
+        loginAdmin('axion', 'axion123');
+      }
       router.push('/admin/venue');
     } else if (role === 'super_admin') {
+      if (!currentAdmin || currentAdmin.role !== 'super_admin') {
+        loginAdmin('superadmin', 'admin123');
+      }
       router.push('/admin/super');
     }
   };

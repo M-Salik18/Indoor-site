@@ -1,4 +1,4 @@
-import { Venue, Facility, PricingRule, DemoBooking } from '@/types';
+import { Venue, Facility, PricingRule, DemoBooking, AdminAccount } from '@/types';
 
 export const INITIAL_VENUES: Venue[] = [
   {
@@ -579,4 +579,67 @@ export const INITIAL_BOOKINGS: DemoBooking[] = [
     paymentStatus: 'pending_at_venue',
     createdAt: '2026-10-10T15:20:00Z',
   }
+];
+
+export const INITIAL_ADMIN_ACCOUNTS: AdminAccount[] = [
+  {
+    id: 'admin-super',
+    username: 'superadmin',
+    password: 'admin123',
+    indoorName: 'Courtly System Headquarters',
+    venueId: '',
+    role: 'super_admin',
+    ownerName: 'Super Administrator',
+    phone: '+94 77 123 4567',
+    createdAt: '2026-01-01T00:00:00Z',
+    status: 'active',
+  },
+  {
+    id: 'admin-axion',
+    username: 'axion',
+    password: 'axion123',
+    indoorName: 'AXION – Ambetenne',
+    venueId: 'venue-axion',
+    role: 'venue_admin',
+    ownerName: 'Rifkhan Nizam',
+    phone: '+94 81 230 4567',
+    createdAt: '2026-02-01T00:00:00Z',
+    status: 'active',
+  },
+  {
+    id: 'admin-colombo',
+    username: 'colomboarena',
+    password: 'arena123',
+    indoorName: 'Colombo Futsal & Cricket Arena',
+    venueId: 'venue-colombo-arena',
+    role: 'venue_admin',
+    ownerName: 'Malik Perera',
+    phone: '+94 11 288 9123',
+    createdAt: '2026-02-15T00:00:00Z',
+    status: 'active',
+  },
+  {
+    id: 'admin-metro',
+    username: 'metrobadminton',
+    password: 'metro123',
+    indoorName: 'Metro Badminton & Smash Club',
+    venueId: 'venue-metro-badminton',
+    role: 'venue_admin',
+    ownerName: 'Sunil Jayawardena',
+    phone: '+94 11 291 3344',
+    createdAt: '2026-03-01T00:00:00Z',
+    status: 'active',
+  },
+  {
+    id: 'admin-apex',
+    username: 'apexsports',
+    password: 'apex123',
+    indoorName: 'Apex Sports Complex',
+    venueId: 'venue-apex-complex',
+    role: 'venue_admin',
+    ownerName: 'Chaminda Silva',
+    phone: '+94 37 222 8990',
+    createdAt: '2026-03-10T00:00:00Z',
+    status: 'active',
+  },
 ];

@@ -10,13 +10,15 @@ import {
   BookingStatus, 
   PaymentCollectionStatus, 
   TimeSlot, 
-  CommissionRecord 
+  CommissionRecord,
+  AdminAccount
 } from '@/types';
 import { 
   INITIAL_VENUES, 
   INITIAL_FACILITIES, 
   INITIAL_PRICING_RULES, 
-  INITIAL_BOOKINGS 
+  INITIAL_BOOKINGS,
+  INITIAL_ADMIN_ACCOUNTS
 } from '@/data/sampleData';
 
 interface DemoContextType {
@@ -28,6 +30,19 @@ interface DemoContextType {
   activeRole: DemoRole;
   commissionRate: number;
   settledBookingIds: string[];
+  adminAccounts: AdminAccount[];
+  currentAdmin: AdminAccount | null;
+  
+  // Auth & Admin operations
+  loginAdmin: (usernameOrIndoor: string, password: string) => { success: boolean; account?: AdminAccount; error?: string };
+  logoutAdmin: () => void;
+  createAdminAccount: (data: Omit<AdminAccount, 'id' | 'createdAt'>) => AdminAccount;
+  deleteAdminAccount: (id: string) => void;
+  updateAdminAccount: (account: AdminAccount) => void;
+  
+  // Theme
+  theme: 'dark' | 'light';
+  toggleTheme: () => void;
   
   // Role switcher
   setActiveRole: (role: DemoRole) => void;
@@ -81,17 +96,37 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const [facilities, setFacilities] = useState<Facility[]>(INITIAL_FACILITIES);
   const [pricingRules, setPricingRules] = useState<PricingRule[]>(INITIAL_PRICING_RULES);
   const [bookings, setBookings] = useState<DemoBooking[]>(INITIAL_BOOKINGS);
-  const [commissionRate, setCommissionRateState] = useState<number>(10);
+  const [commissionRate, setCommissionRateState] = useState<number>(5);
   const [settledBookingIds, setSettledBookingIds] = useState<string[]>([]);
+  const [adminAccounts, setAdminAccounts] = useState<AdminAccount[]>(INITIAL_ADMIN_ACCOUNTS);
+  const [currentAdmin, setCurrentAdmin] = useState<AdminAccount | null>(null);
   
   // Modal quick access
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [bookingModalVenueId, setBookingModalVenueId] = useState<string | null>(null);
   const [bookingModalFacilityId, setBookingModalFacilityId] = useState<string | null>(null);
 
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+
   // Load from localStorage on mount
   useEffect(() => {
     try {
+      const savedTheme = localStorage.getItem('courtly_theme') as 'dark' | 'light' | null;
+      if (savedTheme === 'light' || savedTheme === 'dark') {
+        setTheme(savedTheme);
+        if (typeof document !== 'undefined') {
+          document.documentElement.classList.remove('dark', 'light');
+          document.documentElement.classList.add(savedTheme);
+          document.documentElement.style.colorScheme = savedTheme;
+        }
+      } else {
+        if (typeof document !== 'undefined') {
+          document.documentElement.classList.remove('light');
+          document.documentElement.classList.add('dark');
+          document.documentElement.style.colorScheme = 'dark';
+        }
+      }
+
       const savedVenues = localStorage.getItem(`${STORAGE_KEY_PREFIX}venues`);
       const savedFacilities = localStorage.getItem(`${STORAGE_KEY_PREFIX}facilities`);
       const savedPricing = localStorage.getItem(`${STORAGE_KEY_PREFIX}pricing`);
@@ -99,6 +134,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       const savedRate = localStorage.getItem(`${STORAGE_KEY_PREFIX}comm_rate`);
       const savedSettled = localStorage.getItem(`${STORAGE_KEY_PREFIX}settled`);
       const savedRole = localStorage.getItem(`${STORAGE_KEY_PREFIX}role`);
+      const savedAccounts = localStorage.getItem(`${STORAGE_KEY_PREFIX}accounts`);
+      const savedAdmin = localStorage.getItem(`${STORAGE_KEY_PREFIX}current_admin`);
 
       if (savedVenues) setVenues(JSON.parse(savedVenues));
       if (savedFacilities) setFacilities(JSON.parse(savedFacilities));
@@ -107,12 +144,34 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       if (savedRate) setCommissionRateState(Number(savedRate));
       if (savedSettled) setSettledBookingIds(JSON.parse(savedSettled));
       if (savedRole) setActiveRole(savedRole as DemoRole);
+      if (savedAccounts) setAdminAccounts(JSON.parse(savedAccounts));
+      if (savedAdmin) setCurrentAdmin(JSON.parse(savedAdmin));
     } catch {
       // ignore storage errors
     } finally {
       setIsHydrated(true);
     }
   }, []);
+
+  // Ensure documentElement always reflects current theme
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.remove('dark', 'light');
+      document.documentElement.classList.add(theme);
+      document.documentElement.setAttribute('data-theme', theme);
+      document.documentElement.style.colorScheme = theme;
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => {
+      const nextTheme = prev === 'dark' ? 'light' : 'dark';
+      try {
+        localStorage.setItem('courtly_theme', nextTheme);
+      } catch {}
+      return nextTheme;
+    });
+  };
 
   // Save changes to localStorage
   useEffect(() => {
@@ -125,10 +184,16 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(`${STORAGE_KEY_PREFIX}comm_rate`, commissionRate.toString());
       localStorage.setItem(`${STORAGE_KEY_PREFIX}settled`, JSON.stringify(settledBookingIds));
       localStorage.setItem(`${STORAGE_KEY_PREFIX}role`, activeRole);
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}accounts`, JSON.stringify(adminAccounts));
+      if (currentAdmin) {
+        localStorage.setItem(`${STORAGE_KEY_PREFIX}current_admin`, JSON.stringify(currentAdmin));
+      } else {
+        localStorage.removeItem(`${STORAGE_KEY_PREFIX}current_admin`);
+      }
     } catch {
       // ignore
     }
-  }, [venues, facilities, pricingRules, bookings, commissionRate, settledBookingIds, activeRole, isHydrated]);
+  }, [venues, facilities, pricingRules, bookings, commissionRate, settledBookingIds, activeRole, adminAccounts, currentAdmin, isHydrated]);
 
   // Pricing engine
   const calculatePriceForSlot = (
@@ -169,7 +234,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     return venue ? venue.startingPricePerHour : 2500;
   };
 
-  // Slot generator with live booking checks
+  // Slot generator with live booking checks for 30-minute intervals
   const getSlotsForFacilityAndDate = (facilityId: string, date: string): TimeSlot[] => {
     const facility = facilities.find(f => f.id === facilityId);
     if (!facility) return [];
@@ -177,48 +242,119 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     const venue = venues.find(v => v.id === facility.venueId);
     const venueId = venue ? venue.id : '';
 
-    // Standard hours 07:00 to 23:00 (1-hour slots)
-    const hours = [
-      '07:00', '08:00', '09:00', '10:00', '11:00', '12:00',
-      '13:00', '14:00', '15:00', '16:00', '17:00', '18:00',
-      '19:00', '20:00', '21:00', '22:00', '23:00'
-    ];
+    // Generate 30-minute slots from 06:00 to 23:30 (last slot ends at 00:00 midnight)
+    const slotTimes: string[] = [];
+    for (let hr = 6; hr <= 23; hr++) {
+      const hrStr = hr.toString().padStart(2, '0');
+      slotTimes.push(`${hrStr}:00`);
+      slotTimes.push(`${hrStr}:30`);
+    }
 
     // Find existing non-cancelled bookings for this facility & date
     const dayBookings = bookings.filter(
       b => b.facilityId === facilityId && b.date === date && b.status !== 'cancelled'
     );
 
-    return hours.map(h => {
-      const [hourNum] = h.split(':').map(Number);
-      const nextHour = (hourNum + 1).toString().padStart(2, '0') + ':00';
+    const toMinutes = (timeStr: string) => {
+      const [h, m = 0] = timeStr.split(':').map(Number);
+      return h === 0 ? 24 * 60 : h * 60 + m;
+    };
+
+    return slotTimes.map(h => {
+      const [hourNum, minNum] = h.split(':').map(Number);
       
-      const formatDisplay = (hr: number) => {
-        const period = hr >= 12 ? 'PM' : 'AM';
-        const displayHr = hr % 12 === 0 ? 12 : hr % 12;
-        return `${displayHr}:00 ${period}`;
+      // Calculate end time (+30 minutes)
+      let endHour = hourNum;
+      let endMin = minNum + 30;
+      if (endMin >= 60) {
+        endMin = 0;
+        endHour += 1;
+      }
+      const endTimeStr = endHour >= 24 ? '00:00' : `${endHour.toString().padStart(2, '0')}:${endMin.toString().padStart(2, '0')}`;
+
+      const formatDisplay = (hr: number, mn: number) => {
+        const period = hr >= 12 && hr < 24 ? 'PM' : 'AM';
+        const displayHr = hr === 0 || hr === 24 ? 12 : hr > 12 ? hr - 12 : hr;
+        const mnStr = mn === 0 ? ':00' : `:${mn.toString().padStart(2, '0')}`;
+        return `${displayHr}${mnStr} ${period}`;
       };
 
-      const displayTime = formatDisplay(hourNum);
+      const displayTime = formatDisplay(hourNum, minNum);
 
-      // Check if slot overlaps any booking
+      // Check if this 30-minute slot overlaps any booking
+      const slotStartMin = hourNum * 60 + minNum;
+      const slotEndMin = slotStartMin + 30;
+
       const isBooked = dayBookings.some(b => {
-        const bStartHour = parseInt(b.startTime.split(':')[0], 10);
-        const bEndHour = parseInt(b.endTime.split(':')[0], 10);
-        const effectiveEnd = bEndHour === 0 ? 24 : bEndHour;
-        return hourNum >= bStartHour && hourNum < effectiveEnd;
+        const bStartMin = toMinutes(b.startTime);
+        const bEndMin = toMinutes(b.endTime);
+        return Math.max(slotStartMin, bStartMin) < Math.min(slotEndMin, bEndMin);
       });
 
-      const calculatedPrice = calculatePriceForSlot(venueId, facilityId, date, h);
+      // Price per 30-minute session is half of the calculated hourly rate
+      const hourlyPrice = calculatePriceForSlot(venueId, facilityId, date, h);
+      const sessionPrice = Math.round(hourlyPrice / 2);
 
       return {
         time: h,
         displayTime,
-        endTime: nextHour,
+        endTime: endTimeStr,
         status: isBooked ? 'booked' : 'available',
-        price: calculatedPrice,
+        price: sessionPrice,
       };
     });
+  };
+
+  // Auth & Multi-tenant admin operations
+  const loginAdmin = (usernameOrIndoor: string, password: string) => {
+    const trimmedUser = usernameOrIndoor.trim().toLowerCase();
+    const trimmedPass = password.trim();
+    
+    const account = adminAccounts.find(a => 
+      (a.username.toLowerCase() === trimmedUser || a.indoorName.toLowerCase() === trimmedUser) &&
+      a.password === trimmedPass
+    );
+
+    if (!account) {
+      return { success: false, error: 'Invalid indoor name / username or password' };
+    }
+
+    if (account.status === 'suspended') {
+      return { success: false, error: 'This indoor account is currently deactivated. Contact Super Admin.' };
+    }
+
+    setCurrentAdmin(account);
+    setActiveRole(account.role);
+    return { success: true, account };
+  };
+
+  const logoutAdmin = () => {
+    setCurrentAdmin(null);
+    setActiveRole('customer');
+    try {
+      localStorage.removeItem(`${STORAGE_KEY_PREFIX}current_admin`);
+    } catch {}
+  };
+
+  const createAdminAccount = (data: Omit<AdminAccount, 'id' | 'createdAt'>): AdminAccount => {
+    const newAccount: AdminAccount = {
+      ...data,
+      id: `admin-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    setAdminAccounts(prev => [...prev, newAccount]);
+    return newAccount;
+  };
+
+  const deleteAdminAccount = (id: string) => {
+    setAdminAccounts(prev => prev.filter(a => a.id !== id));
+  };
+
+  const updateAdminAccount = (account: AdminAccount) => {
+    setAdminAccounts(prev => prev.map(a => a.id === account.id ? account : a));
+    if (currentAdmin?.id === account.id) {
+      setCurrentAdmin(account);
+    }
   };
 
   // Add a new booking
@@ -361,6 +497,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}comm_rate`);
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}settled`);
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}role`);
+      localStorage.removeItem(`${STORAGE_KEY_PREFIX}accounts`);
+      localStorage.removeItem(`${STORAGE_KEY_PREFIX}current_admin`);
     } catch {
       // ignore
     }
@@ -368,8 +506,10 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     setFacilities(INITIAL_FACILITIES);
     setPricingRules(INITIAL_PRICING_RULES);
     setBookings(INITIAL_BOOKINGS);
-    setCommissionRateState(10);
+    setCommissionRateState(5);
     setSettledBookingIds([]);
+    setAdminAccounts(INITIAL_ADMIN_ACCOUNTS);
+    setCurrentAdmin(null);
     setActiveRole('customer');
   };
 
@@ -383,6 +523,15 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         activeRole,
         commissionRate,
         settledBookingIds,
+        adminAccounts,
+        currentAdmin,
+        theme,
+        toggleTheme,
+        loginAdmin,
+        logoutAdmin,
+        createAdminAccount,
+        deleteAdminAccount,
+        updateAdminAccount,
         setActiveRole,
         addBooking,
         updateBookingStatus,

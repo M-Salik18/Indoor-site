@@ -8,6 +8,7 @@ import BookingDetailDrawer from '@/components/admin/BookingDetailDrawer';
 import PricingEditor from '@/components/admin/PricingEditor';
 import FacilityManager from '@/components/admin/FacilityManager';
 import VenueSettingsEditor from '@/components/admin/VenueSettingsEditor';
+import { useRouter } from 'next/navigation';
 import { 
   Building2, 
   Calendar, 
@@ -26,10 +27,13 @@ import {
   Sparkles,
   Phone,
   User,
-  Plus
+  Plus,
+  LogOut,
+  Shield
 } from 'lucide-react';
 
 export default function VenueAdminView() {
+  const router = useRouter();
   const { 
     venues, 
     facilities, 
@@ -37,11 +41,19 @@ export default function VenueAdminView() {
     commissionRate, 
     updateBookingStatus, 
     updatePaymentStatus,
-    openBookingModal
+    openBookingModal,
+    currentAdmin,
+    logoutAdmin
   } = useDemo();
 
-  // Selected venue in admin (AXION – Ambetenne by default)
+  // If user is a logged-in venue_admin, lock strictly to their venue ID
+  const isVenueAdmin = currentAdmin?.role === 'venue_admin';
+  const lockedVenueId = isVenueAdmin && currentAdmin.venueId ? currentAdmin.venueId : null;
+
+  // Selected venue in admin (locked if venue_admin, else controllable by super_admin)
   const [selectedVenueId, setSelectedVenueId] = useState<string>('venue-axion');
+  const activeVenueId = lockedVenueId || selectedVenueId;
+
   const [activeTab, setActiveTab] = useState<'overview' | 'bookings' | 'pricing' | 'facilities' | 'settings'>('overview');
 
   // Booking filters
@@ -52,13 +64,13 @@ export default function VenueAdminView() {
   // Selected booking for drawer inspection
   const [inspectedBooking, setInspectedBooking] = useState<DemoBooking | null>(null);
 
-  const currentVenue = venues.find(v => v.id === selectedVenueId) || venues[0];
-  const venueFacilities = facilities.filter(f => f.venueId === selectedVenueId);
+  const currentVenue = venues.find(v => v.id === activeVenueId) || venues[0];
+  const venueFacilities = facilities.filter(f => f.venueId === activeVenueId);
 
   // All bookings for this venue
   const venueBookings = useMemo(() => {
-    return bookings.filter(b => b.venueId === selectedVenueId);
-  }, [bookings, selectedVenueId]);
+    return bookings.filter(b => b.venueId === activeVenueId);
+  }, [bookings, activeVenueId]);
 
   // Today's date string (deterministic for prerender)
   const [todayStr, setTodayStr] = useState('2026-10-11');
@@ -101,11 +113,16 @@ export default function VenueAdminView() {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400 bg-blue-950 px-2.5 py-0.5 rounded-full border border-blue-800/40">
-                  Venue Admin Portal
+                  {isVenueAdmin ? 'Private Indoor Admin Portal' : 'Venue Admin Portal'}
                 </span>
                 <span className="text-xs text-slate-400 font-medium">
                   {currentVenue.district} District
                 </span>
+                {isVenueAdmin && (
+                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-800/40">
+                    Isolated Tenant Access
+                  </span>
+                )}
               </div>
               <h1 className="text-xl sm:text-2xl font-black text-white mt-0.5">
                 {currentVenue.name}
@@ -116,26 +133,60 @@ export default function VenueAdminView() {
             </div>
           </div>
 
-          {/* Venue Switcher & Test Booking Trigger */}
+          {/* Account Badge & Controls */}
           <div className="flex items-center gap-2.5 flex-wrap">
-            <div className="relative">
-              <label htmlFor="venue-switcher-select" className="sr-only">Switch Venue</label>
-              <select
-                id="venue-switcher-select"
-                value={selectedVenueId}
-                onChange={(e) => setSelectedVenueId(e.target.value)}
-                className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-semibold"
-              >
-                {venues.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    Switch to: {v.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* If venue admin, show their locked account badge and NO switcher */}
+            {isVenueAdmin ? (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs">
+                  <User className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="text-slate-200 font-semibold">{currentAdmin.ownerName || currentAdmin.indoorName}</span>
+                  <span className="text-slate-500">(@{currentAdmin.username})</span>
+                </div>
+
+                <button
+                  onClick={() => {
+                    logoutAdmin();
+                    router.push('/admin/login');
+                  }}
+                  className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold transition-colors flex items-center gap-1.5"
+                  title="Log out of this venue portal"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Log Out</span>
+                </button>
+              </div>
+            ) : (
+              /* Super Admin can switch venues or jump to Super Admin */
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/admin/super"
+                  className="px-3 py-2 rounded-xl bg-purple-950/60 hover:bg-purple-900/60 border border-purple-800 text-purple-300 text-xs font-bold transition-all flex items-center gap-1.5"
+                >
+                  <Shield className="w-3.5 h-3.5" />
+                  <span>Super Admin</span>
+                </Link>
+
+                <div className="relative">
+                  <label htmlFor="venue-switcher-select" className="sr-only">Switch Venue</label>
+                  <select
+                    id="venue-switcher-select"
+                    value={activeVenueId}
+                    onChange={(e) => setSelectedVenueId(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 font-semibold"
+                  >
+                    {venues.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        Switch to: {v.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
 
             <button
-              onClick={() => openBookingModal(selectedVenueId)}
+              onClick={() => openBookingModal(activeVenueId)}
               className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" />
