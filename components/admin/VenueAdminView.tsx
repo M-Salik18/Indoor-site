@@ -38,7 +38,7 @@ export default function VenueAdminView() {
     venues, 
     facilities, 
     bookings, 
-    commissionRate, 
+    subscriptions, 
     updateBookingStatus, 
     updatePaymentStatus,
     openBookingModal,
@@ -88,7 +88,11 @@ export default function VenueAdminView() {
     .filter(b => b.status !== 'cancelled')
     .reduce((sum, b) => sum + b.totalPrice, 0);
 
-  const estimatedCommission = Math.round((totalGrossValue * commissionRate) / 100);
+  const venueSubscription = subscriptions.find(s => s.venueId === activeVenueId);
+  const monthlyPrice = venueSubscription?.monthlyPrice || 10000;
+  const subscriptionPlan = venueSubscription?.planName || 'Standard Venue Monthly';
+  const subscriptionStatus = venueSubscription?.status || 'active';
+  const nextDueDate = venueSubscription?.nextBillingDate || '1st of next month';
 
   // Filtered bookings for the table
   const displayedBookings = useMemo(() => {
@@ -291,14 +295,19 @@ export default function VenueAdminView() {
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 col-span-2 sm:col-span-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-purple-400 block mb-1">
-                  Est. Commission ({commissionRate}%)
-                </span>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-purple-400">
+                    Platform Subscription
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    {subscriptionStatus}
+                  </span>
+                </div>
                 <span className="text-xl font-black text-purple-300">
-                  LKR {estimatedCommission.toLocaleString()}
+                  LKR {monthlyPrice.toLocaleString()}<span className="text-xs font-semibold text-slate-400">/mo</span>
                 </span>
-                <span className="text-[10px] text-slate-500 block mt-1">
-                  Platform share
+                <span className="text-[10px] text-slate-400 block mt-1">
+                  {subscriptionPlan} • Next due: {nextDueDate}
                 </span>
               </div>
 

@@ -90,19 +90,32 @@ export interface DemoBooking {
   notes?: string;
 }
 
-export interface CommissionRecord {
+export interface VenueSubscription {
   id: string;
-  bookingId: string;
   venueId: string;
-  venueName: string;
-  bookingRef: string;
-  bookingAmount: number;
-  commissionRate: number; // percentage, e.g. 10
-  commissionAmount: number;
-  bookingStatus: BookingStatus;
-  settlementStatus: 'outstanding' | 'settled';
-  settledAt?: string;
-  date: string;
+  planName: string;
+  monthlyPrice: number; // 10000 LKR
+  status: 'active' | 'past_due' | 'suspended' | 'trialing';
+  currentPeriodStart: string; // YYYY-MM-DD
+  currentPeriodEnd: string;   // YYYY-MM-DD
+  nextBillingDate: string;    // YYYY-MM-DD
+  gracePeriodUntil?: string;  // YYYY-MM-DD
+}
+
+export interface SubscriptionPayment {
+  id: string;
+  subscriptionId: string;
+  venueId: string;
+  paymentRef: string; // e.g. SUB-PAY-84920
+  amount: number;     // 10000 LKR
+  billingPeriodStart: string; // YYYY-MM-DD
+  billingPeriodEnd: string;   // YYYY-MM-DD
+  paymentDate: string;        // YYYY-MM-DD
+  paymentMethod: string;      // e.g. 'Bank Transfer', 'Direct Deposit', 'Cash'
+  paymentReferenceNumber: string; // Bank slip no / txn id
+  verificationStatus: 'verified' | 'pending_verification';
+  recordedBy: string;
+  notes?: string;
 }
 
 export interface TimeSlot {
