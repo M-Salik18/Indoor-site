@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useDemo } from '@/context/DemoContext';
-import { Venue, DistrictType, SportType } from '@/types';
+import { Venue, DistrictType, SportType, VenueSubscription, SubscriptionPayment } from '@/types';
 import { 
   ShieldCheck, 
   Building2, 
@@ -24,7 +24,12 @@ import {
   EyeOff,
   Trash2,
   Lock,
-  ExternalLink
+  ExternalLink,
+  CreditCard,
+  Receipt,
+  Calendar,
+  AlertTriangle,
+  Clock
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -34,10 +39,11 @@ export default function SuperAdminView() {
     venues, 
     facilities, 
     bookings, 
-    commissionRate, 
-    setCommissionRate, 
-    settleVenueCommission, 
-    getCommissionRecords,
+    subscriptions,
+    subscriptionPayments,
+    recordSubscriptionPayment,
+    updateSubscriptionStatus,
+    updateMonthlyPrice,
     toggleVenueActive,
     addVenue,
     openBookingModal,
@@ -48,11 +54,21 @@ export default function SuperAdminView() {
     loginAdmin
   } = useDemo();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'venues' | 'commissions' | 'accounts'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'venues' | 'subscriptions' | 'accounts'>('overview');
   
-  // Commission filters
-  const [filterVenueId, setFilterVenueId] = useState<string>('all');
-  const [filterSettlement, setFilterSettlement] = useState<string>('all');
+  // Subscription filters
+  const [filterSubVenueId, setFilterSubVenueId] = useState<string>('all');
+  const [filterSubStatus, setFilterSubStatus] = useState<string>('all');
+
+  // Record Subscription Payment Modal
+  const [isRecordPaymentOpen, setIsRecordPaymentOpen] = useState(false);
+  const [paymentVenueId, setPaymentVenueId] = useState('venue-axion');
+  const [paymentAmount, setPaymentAmount] = useState(10000);
+  const [paymentMethod, setPaymentMethod] = useState('Bank Transfer');
+  const [paymentRefNumber, setPaymentRefNumber] = useState('');
+  const [billingMonth, setBillingMonth] = useState('2026-10');
+  const [paymentNotes, setPaymentNotes] = useState('');
+  const [subscriptionBannerMsg, setSubscriptionBannerMsg] = useState('');
 
   // Add Venue Modal
   const [isAddVenueOpen, setIsAddVenueOpen] = useState(false);
@@ -74,8 +90,6 @@ export default function SuperAdminView() {
   const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
   const [accountBannerMsg, setAccountBannerMsg] = useState('');
 
-  const commissionRecords = getCommissionRecords();
-
   // Metrics
   const totalVenues = venues.length;
   const activeVenues = venues.filter(v => v.isActive).length;
@@ -85,20 +99,61 @@ export default function SuperAdminView() {
     .filter(b => b.status !== 'cancelled')
     .reduce((sum, b) => sum + b.totalPrice, 0);
 
-  const totalPlatformCommission = Math.round((grossBookingValue * commissionRate) / 100);
+  const activeSubscriptions = subscriptions.filter(s => s.status === 'active');
+  const totalMRR = subscriptions
+    .filter(s => s.status === 'active')
+    .reduce((sum, s) => sum + s.monthlyPrice, 0);
 
-  const outstandingCommission = commissionRecords
-    .filter(c => c.settlementStatus === 'outstanding' && c.bookingStatus !== 'cancelled')
-    .reduce((sum, c) => sum + c.commissionAmount, 0);
+  const overdueCount = subscriptions.filter(s => s.status === 'past_due' || s.status === 'suspended').length;
+  const totalCollectedRevenue = subscriptionPayments.reduce((sum, p) => sum + p.amount, 0);
 
-  // Filtered commission table records
-  const displayedCommissions = useMemo(() => {
-    return commissionRecords.filter(c => {
-      if (filterVenueId !== 'all' && c.venueId !== filterVenueId) return false;
-      if (filterSettlement !== 'all' && c.settlementStatus !== filterSettlement) return false;
+  // Filtered subscriptions for the management table
+  const displayedSubscriptions = useMemo(() => {
+    return subscriptions.filter(s => {
+      if (filterSubVenueId !== 'all' && s.venueId !== filterSubVenueId) return false;
+      if (filterSubStatus !== 'all' && s.status !== filterSubStatus) return false;
       return true;
     });
-  }, [commissionRecords, filterVenueId, filterSettlement]);
+  }, [subscriptions, filterSubVenueId, filterSubStatus]);
+
+  const handleOpenRecordPayment = (venueId?: string) => {
+    const targetVenueId = venueId || (venues[0]?.id || 'venue-axion');
+    setPaymentVenueId(targetVenueId);
+    const sub = subscriptions.find(s => s.venueId === targetVenueId);
+    setPaymentAmount(sub?.monthlyPrice || 10000);
+    setIsRecordPaymentOpen(true);
+  };
+
+  const handleRecordPaymentSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const targetSub = subscriptions.find(s => s.venueId === paymentVenueId);
+    const subId = targetSub?.id || `sub-${paymentVenueId}`;
+    const targetVenue = venues.find(v => v.id === paymentVenueId);
+
+    const [year, month] = billingMonth.split('-');
+    const startDate = `${year}-${month}-01`;
+    const lastDay = new Date(Number(year), Number(month), 0).getDate();
+    const endDate = `${year}-${month}-${lastDay.toString().padStart(2, '0')}`;
+
+    recordSubscriptionPayment({
+      subscriptionId: subId,
+      venueId: paymentVenueId,
+      amount: Number(paymentAmount) || 10000,
+      billingPeriodStart: startDate,
+      billingPeriodEnd: endDate,
+      paymentDate: new Date().toISOString().split('T')[0],
+      paymentMethod,
+      paymentReferenceNumber: paymentRefNumber.trim() || `TXN-REF-${Math.floor(100000 + Math.random() * 900000)}`,
+      verificationStatus: 'verified',
+      recordedBy: 'Super Administrator',
+      notes: paymentNotes.trim() || 'Verified monthly platform subscription payment.',
+    });
+
+    setSubscriptionBannerMsg(`Successfully recorded and verified LKR ${(Number(paymentAmount) || 10000).toLocaleString()} subscription payment for ${targetVenue?.name || 'venue'}.`);
+    setIsRecordPaymentOpen(false);
+    setPaymentRefNumber('');
+    setPaymentNotes('');
+  };
 
   const handleCreateVenue = (e: React.FormEvent) => {
     e.preventDefault();
@@ -176,15 +231,23 @@ export default function SuperAdminView() {
                 Marketplace Super-Admin
               </h1>
               <p className="text-xs text-slate-400 mt-0.5">
-                Managing multi-venue ecosystem, commission rates, settlements & platform revenue.
+                Managing multi-venue partner network, monthly fixed subscriptions & verified payment records.
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
             <button
+              onClick={() => handleOpenRecordPayment()}
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-purple-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
+            >
+              <Receipt className="w-4 h-4" />
+              <span>Record Subscription Payment</span>
+            </button>
+
+            <button
               onClick={() => setIsAddAccountOpen(true)}
-              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition-all flex items-center gap-1.5"
+              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
             >
               <Key className="w-4 h-4" />
               <span>Create Venue Admin Account</span>
@@ -192,7 +255,7 @@ export default function SuperAdminView() {
 
             <button
               onClick={() => setIsAddVenueOpen(true)}
-              className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-md shadow-purple-600/20 transition-all flex items-center gap-1.5"
+              className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs border border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>Register New Venue</span>
@@ -205,7 +268,7 @@ export default function SuperAdminView() {
           {[
             { id: 'overview', label: 'Platform Performance' },
             { id: 'venues', label: `Partner Venues (${venues.length})` },
-            { id: 'commissions', label: `Commission Ledger (${commissionRecords.length})` },
+            { id: 'subscriptions', label: `Subscriptions & Billing (${subscriptions.length})` },
             { id: 'accounts', label: `Venue Admin Accounts (${adminAccounts.filter(a => a.role === 'venue_admin').length})` },
           ].map((tab) => {
             const isActive = activeTab === tab.id;
@@ -213,7 +276,7 @@ export default function SuperAdminView() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`px-4 py-2.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${
+                className={`px-4 py-2.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all cursor-pointer ${
                   isActive
                     ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
@@ -229,7 +292,7 @@ export default function SuperAdminView() {
         {activeTab === 'overview' && (
           <div className="space-y-8">
             
-            {/* Top Metric Cards (Section 12) */}
+            {/* Top Metric Cards */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5 sm:gap-4">
               
               <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
@@ -250,7 +313,7 @@ export default function SuperAdminView() {
 
               <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-blue-400 block mb-1">
-                  Total Demo Bookings
+                  Customer Bookings
                 </span>
                 <span className="text-2xl font-black text-blue-300">{totalBookings}</span>
                 <span className="text-[10px] text-slate-500 block mt-1">Across all arenas</span>
@@ -263,82 +326,92 @@ export default function SuperAdminView() {
                 <span className="text-xl font-black text-emerald-400">
                   LKR {grossBookingValue.toLocaleString()}
                 </span>
-                <span className="text-[10px] text-slate-500 block mt-1">Sample turnover</span>
+                <span className="text-[10px] text-emerald-400/90 font-medium block mt-1">
+                  0% Commission (100% kept by venues)
+                </span>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-purple-400 block mb-1">
-                  Platform Commission
+                  Monthly Revenue (MRR)
                 </span>
                 <span className="text-xl font-black text-purple-300">
-                  LKR {totalPlatformCommission.toLocaleString()}
+                  LKR {totalMRR.toLocaleString()}
                 </span>
-                <span className="text-[10px] text-slate-500 block mt-1">At {commissionRate}% take-rate</span>
+                <span className="text-[10px] text-slate-500 block mt-1">
+                  {activeSubscriptions.length} active @ LKR 10,000/mo
+                </span>
               </div>
 
               <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 block mb-1">
-                  Commission Outstanding
+                  Overdue / Past Due
                 </span>
                 <span className="text-xl font-black text-amber-300">
-                  LKR {outstandingCommission.toLocaleString()}
+                  {overdueCount}
                 </span>
-                <span className="text-[10px] text-slate-500 block mt-1">Pending venue payout</span>
+                <span className="text-[10px] text-slate-500 block mt-1">
+                  {overdueCount === 0 ? 'All subscriptions current' : 'Requires renewal check'}
+                </span>
               </div>
 
             </div>
 
-            {/* Configurable Platform Commission Rate Controller (Section 12) */}
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-xl space-y-4">
+            {/* Fixed Subscription Business Model Information Banner */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-xl space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
                 <div>
                   <span className="text-xs font-bold text-purple-400 uppercase tracking-widest flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5" />
-                    Monetization Model Demonstration
+                    Business Model: Fixed Monthly Subscription
                   </span>
-                  <h3 className="text-lg font-bold text-white mt-1">
-                    Marketplace Commission Rate Setting
+                  <h3 className="text-xl font-bold text-white mt-1">
+                    LKR 10,000 / Month Per Venue • 0% Commission
                   </h3>
-                  <p className="text-xs text-slate-400 mt-1 max-w-xl">
-                    Adjust the demo commission take-rate percentage. All platform commission metrics and venue settlement balances recalculate automatically.
+                  <p className="text-xs text-slate-400 mt-1 max-w-2xl">
+                    Courtly charges each indoor sports venue a simple, transparent flat monthly subscription. Venues keep 100% of player counter payments, while Super Admins record and reconcile monthly fee settlements.
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3 bg-slate-950 p-3 rounded-2xl border border-slate-800 self-start sm:self-auto">
-                  <div className="text-right">
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider block">Active Rate</span>
-                    <span className="text-2xl font-black text-purple-400 font-mono">{commissionRate}%</span>
-                  </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setActiveTab('subscriptions')}
+                    className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs transition-colors flex items-center gap-1.5"
+                  >
+                    <Receipt className="w-3.5 h-3.5" />
+                    <span>View Subscriptions & Billing</span>
+                  </button>
                 </div>
               </div>
 
-              <div className="flex flex-col sm:flex-row sm:items-center gap-6 pt-2">
-                <div className="flex-1 space-y-2">
-                  <div className="flex justify-between text-xs text-slate-300 font-medium">
-                    <span>Adjust Rate:</span>
-                    <span className="font-mono text-purple-300 font-bold">{commissionRate}% Take-Rate</span>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+                <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2">
+                  <div className="w-8 h-8 rounded-xl bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold text-xs">
+                    <CreditCard className="w-4 h-4" />
                   </div>
-                  <input
-                    type="range"
-                    min={5}
-                    max={25}
-                    step={1}
-                    value={commissionRate}
-                    onChange={(e) => setCommissionRate(Number(e.target.value))}
-                    className="accent-purple-500 w-full cursor-pointer h-2 bg-slate-950 rounded-lg"
-                  />
-                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                    <span className="text-purple-400 font-bold">5% (Default Platform Rate)</span>
-                    <span>10%</span>
-                    <span>15%</span>
-                    <span>20%</span>
-                    <span>25% (Premium)</span>
-                  </div>
+                  <h4 className="text-sm font-bold text-white">LKR 10,000 Flat Monthly Fee</h4>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Predictable and transparent billing. No per-hour or per-game commission calculations to audit or dispute.
+                  </p>
                 </div>
 
-                <div className="p-3.5 rounded-2xl bg-purple-950/30 border border-purple-500/30 text-xs text-purple-200 max-w-sm">
-                  <p className="leading-relaxed">
-                    At <strong>{commissionRate}%</strong>, the platform generates <strong>LKR {totalPlatformCommission.toLocaleString()}</strong> from current sample bookings across all partner centres.
+                <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs">
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                  <h4 className="text-sm font-bold text-white">0% Commission on Bookings</h4>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Customers pay the indoor centre directly at the counter. Partner facilities retain 100% of their pitch revenues.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2">
+                  <div className="w-8 h-8 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-xs">
+                    <ShieldCheck className="w-4 h-4" />
+                  </div>
+                  <h4 className="text-sm font-bold text-white">Manual Verified Settlement Ledger</h4>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Super Admin records bank transfers, deposit slips, and reference numbers with instant status updates.
                   </p>
                 </div>
               </div>
@@ -449,59 +522,127 @@ export default function SuperAdminView() {
           </div>
         )}
 
-        {/* ================= TAB 3: COMMISSION LEDGER ================= */}
-        {activeTab === 'commissions' && (
+        {/* ================= TAB 3: SUBSCRIPTIONS & BILLING ================= */}
+        {activeTab === 'subscriptions' && (
           <div className="space-y-6">
             
-            {/* Filter controls */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs items-center">
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                  Filter by Venue
-                </label>
-                <select
-                  value={filterVenueId}
-                  onChange={(e) => setFilterVenueId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+            {/* Banner Notice */}
+            {subscriptionBannerMsg && (
+              <div className="p-4 rounded-2xl bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 text-xs flex items-center justify-between gap-3 animate-in fade-in">
+                <div className="flex items-center gap-2.5">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                  <span>{subscriptionBannerMsg}</span>
+                </div>
+                <button
+                  onClick={() => setSubscriptionBannerMsg('')}
+                  className="text-emerald-400 hover:text-white text-xs font-bold px-2 py-1 rounded-lg bg-emerald-900/60 cursor-pointer"
                 >
-                  <option value="all">All Venues ({venues.length})</option>
-                  {venues.map((v) => (
-                    <option key={v.id} value={v.id}>{v.name}</option>
-                  ))}
-                </select>
+                  Dismiss
+                </button>
+              </div>
+            )}
+
+            {/* Subscriptions Status Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Total Partner Venues
+                </span>
+                <span className="text-2xl font-black text-white">{totalVenues}</span>
+                <span className="text-[10px] text-slate-500 block mt-1">Ecosystem arenas</span>
               </div>
 
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                  Filter Settlement Status
-                </label>
-                <select
-                  value={filterSettlement}
-                  onChange={(e) => setFilterSettlement(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
-                >
-                  <option value="all">All Settlements</option>
-                  <option value="outstanding">Outstanding (Pending Payout)</option>
-                  <option value="settled">Settled</option>
-                </select>
+              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block mb-1">
+                  Active Subscriptions
+                </span>
+                <span className="text-2xl font-black text-emerald-300">
+                  {activeSubscriptions.length} / {subscriptions.length}
+                </span>
+                <span className="text-[10px] text-slate-500 block mt-1">LKR 10,000 / month</span>
               </div>
 
-              <div className="flex items-end justify-end pt-2 sm:pt-0">
-                <span className="text-slate-400 text-xs">
-                  Outstanding: <strong className="text-amber-400">LKR {outstandingCommission.toLocaleString()}</strong>
+              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-purple-400 block mb-1">
+                  Monthly Recurring (MRR)
+                </span>
+                <span className="text-2xl font-black text-purple-300">
+                  LKR {totalMRR.toLocaleString()}
+                </span>
+                <span className="text-[10px] text-slate-500 block mt-1">Projected this month</span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 block mb-1">
+                  Overdue / Suspended
+                </span>
+                <span className="text-2xl font-black text-amber-300">{overdueCount}</span>
+                <span className="text-[10px] text-slate-500 block mt-1">
+                  {overdueCount === 0 ? 'All venues in good standing' : 'Follow up required'}
                 </span>
               </div>
             </div>
 
-            {/* Commissions Table */}
+            {/* Subscriptions Filter & Actions Bar */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 text-xs">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+                <div className="min-w-[200px]">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Filter by Venue
+                  </label>
+                  <select
+                    value={filterSubVenueId}
+                    onChange={(e) => setFilterSubVenueId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                  >
+                    <option value="all">All Venues ({venues.length})</option>
+                    {venues.map((v) => (
+                      <option key={v.id} value={v.id}>{v.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="min-w-[160px]">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Subscription Status
+                  </label>
+                  <select
+                    value={filterSubStatus}
+                    onChange={(e) => setFilterSubStatus(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-purple-500"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="active">Active</option>
+                    <option value="past_due">Past Due</option>
+                    <option value="suspended">Suspended</option>
+                    <option value="trialing">Trialing</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2 sm:pt-0 self-end sm:self-auto">
+                <button
+                  onClick={() => handleOpenRecordPayment()}
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-purple-600/30 flex items-center gap-1.5 transition-all cursor-pointer whitespace-nowrap"
+                >
+                  <Receipt className="w-3.5 h-3.5" />
+                  <span>+ Record Subscription Payment</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Table 1: Venue Subscriptions Ledger */}
             <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
               <div className="px-6 py-4 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between">
                 <div>
-                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                    Illustrative Commission Records ({displayedCommissions.length})
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <span>Venue Subscription Status Ledger</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-950 text-purple-400 border border-purple-800/40">
+                      Fixed LKR 10,000 / Mo
+                    </span>
                   </h3>
                   <span className="text-xs text-slate-400">
-                    Transparent percentage breakdown per reservation
+                    Monthly billing cycle details, current active standing, and manual settlement action
                   </span>
                 </div>
               </div>
@@ -510,79 +651,167 @@ export default function SuperAdminView() {
                 <table className="w-full text-left text-xs text-slate-300">
                   <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
                     <tr>
-                      <th className="py-3 px-4">Booking Ref</th>
-                      <th className="py-3 px-4">Venue</th>
-                      <th className="py-3 px-4">Booking Amount</th>
-                      <th className="py-3 px-4">Rate</th>
-                      <th className="py-3 px-4">Commission (LKR)</th>
-                      <th className="py-3 px-4">Game Status</th>
-                      <th className="py-3 px-4">Settlement</th>
-                      <th className="py-3 px-4 text-right">Action</th>
+                      <th className="py-3 px-4">Indoor Arena / Venue</th>
+                      <th className="py-3 px-4">Subscription Plan</th>
+                      <th className="py-3 px-4">Monthly Fee</th>
+                      <th className="py-3 px-4">Status</th>
+                      <th className="py-3 px-4">Current Period</th>
+                      <th className="py-3 px-4">Next Due Date</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/80">
-                    {displayedCommissions.map((record) => (
-                      <tr key={record.id} className="hover:bg-slate-950/40">
-                        <td className="py-3.5 px-4 font-mono font-bold text-white">
-                          {record.bookingRef}
-                        </td>
+                    {displayedSubscriptions.map((sub) => {
+                      const v = venues.find(item => item.id === sub.venueId);
+                      return (
+                        <tr key={sub.id} className="hover:bg-slate-950/40 transition-colors">
+                          <td className="py-3.5 px-4">
+                            <div className="font-bold text-white text-sm">
+                              {v?.name || sub.venueId}
+                            </div>
+                            <div className="text-[11px] text-slate-400">
+                              {v?.district} • {v?.city}
+                            </div>
+                          </td>
 
-                        <td className="py-3.5 px-4 font-semibold text-slate-200">
-                          {record.venueName}
-                        </td>
+                          <td className="py-3.5 px-4 font-medium text-slate-200">
+                            {sub.planName}
+                          </td>
 
-                        <td className="py-3.5 px-4 font-mono text-slate-300">
-                          LKR {record.bookingAmount.toLocaleString()}
-                        </td>
+                          <td className="py-3.5 px-4 font-mono font-bold text-purple-400 text-sm">
+                            LKR {sub.monthlyPrice.toLocaleString()}<span className="text-xs font-normal text-slate-400">/mo</span>
+                          </td>
 
-                        <td className="py-3.5 px-4 font-mono text-purple-400 font-bold">
-                          {record.commissionRate}%
-                        </td>
-
-                        <td className="py-3.5 px-4 font-mono font-black text-emerald-400 text-sm">
-                          LKR {record.commissionAmount.toLocaleString()}
-                        </td>
-
-                        <td className="py-3.5 px-4 uppercase text-[10px] font-bold">
-                          <span className={`${
-                            record.bookingStatus === 'completed' ? 'text-emerald-400' :
-                            record.bookingStatus === 'confirmed' ? 'text-blue-400' : 'text-slate-500'
-                          }`}>
-                            {record.bookingStatus}
-                          </span>
-                        </td>
-
-                        <td className="py-3.5 px-4">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                            record.settlementStatus === 'settled'
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                              : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                          }`}>
-                            {record.settlementStatus}
-                          </span>
-                        </td>
-
-                        <td className="py-3.5 px-4 text-right">
-                          {record.settlementStatus === 'outstanding' ? (
-                            <button
-                              onClick={() => settleVenueCommission(record.bookingId)}
-                              className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold transition-colors"
-                            >
-                              Record Settlement
-                            </button>
-                          ) : (
-                            <span className="text-[11px] text-emerald-400 font-semibold flex items-center justify-end gap-1">
-                              <Check className="w-3 h-3" />
-                              <span>Settled</span>
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider ${
+                              sub.status === 'active'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                : sub.status === 'past_due'
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            }`}>
+                              {sub.status.replace('_', ' ')}
                             </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+
+                          <td className="py-3.5 px-4 font-mono text-slate-300 text-[11px]">
+                            {sub.currentPeriodStart} to {sub.currentPeriodEnd}
+                          </td>
+
+                          <td className="py-3.5 px-4 font-mono text-slate-200 font-semibold text-[11px]">
+                            {sub.nextBillingDate}
+                          </td>
+
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => handleOpenRecordPayment(sub.venueId)}
+                                className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                                title="Record monthly subscription payment"
+                              >
+                                <Receipt className="w-3.5 h-3.5" />
+                                <span>Record Payment</span>
+                              </button>
+
+                              <select
+                                value={sub.status}
+                                onChange={(e) => updateSubscriptionStatus(sub.id, e.target.value as any)}
+                                className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-[11px] text-slate-300 focus:outline-none focus:border-purple-500 cursor-pointer"
+                                title="Change status"
+                              >
+                                <option value="active">Active</option>
+                                <option value="past_due">Past Due</option>
+                                <option value="suspended">Suspended</option>
+                              </select>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </div>
+
+            {/* Table 2: Verified Subscription Payments History */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl overflow-hidden shadow-xl">
+              <div className="px-6 py-4 bg-slate-950/80 border-b border-slate-800 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                    <span>Verified Subscription Payment History & Bank Slips ({subscriptionPayments.length})</span>
+                  </h3>
+                  <span className="text-xs text-slate-400">
+                    Audit trail of reconciled LKR 10,000 monthly subscription payments recorded by Super Admin
+                  </span>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs text-slate-300">
+                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="py-3 px-4">Payment Ref</th>
+                      <th className="py-3 px-4">Venue</th>
+                      <th className="py-3 px-4">Billing Month</th>
+                      <th className="py-3 px-4">Amount</th>
+                      <th className="py-3 px-4">Payment Method</th>
+                      <th className="py-3 px-4">Slip / Txn Ref</th>
+                      <th className="py-3 px-4">Payment Date</th>
+                      <th className="py-3 px-4">Verification</th>
+                      <th className="py-3 px-4">Recorded By</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/80">
+                    {subscriptionPayments.map((p) => {
+                      const v = venues.find(item => item.id === p.venueId);
+                      return (
+                        <tr key={p.id} className="hover:bg-slate-950/40 transition-colors">
+                          <td className="py-3.5 px-4 font-mono font-bold text-white">
+                            {p.paymentRef}
+                          </td>
+
+                          <td className="py-3.5 px-4 font-semibold text-slate-200">
+                            {v?.name || p.venueId}
+                          </td>
+
+                          <td className="py-3.5 px-4 font-mono text-slate-300">
+                            {p.billingPeriodStart.substring(0, 7)}
+                          </td>
+
+                          <td className="py-3.5 px-4 font-mono font-black text-emerald-400 text-sm">
+                            LKR {p.amount.toLocaleString()}
+                          </td>
+
+                          <td className="py-3.5 px-4 text-slate-300">
+                            {p.paymentMethod}
+                          </td>
+
+                          <td className="py-3.5 px-4 font-mono text-purple-300 font-semibold">
+                            {p.paymentReferenceNumber}
+                          </td>
+
+                          <td className="py-3.5 px-4 font-mono text-slate-400 text-[11px]">
+                            {p.paymentDate}
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                              <Check className="w-3 h-3 text-emerald-400" />
+                              <span>{p.verificationStatus.replace('_', ' ')}</span>
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-slate-400 text-[11px]">
+                            {p.recordedBy}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
           </div>
         )}
 
@@ -1026,6 +1255,157 @@ export default function SuperAdminView() {
                 >
                   <Check className="w-4 h-4" />
                   <span>Create Account & Issue Credentials</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Record Subscription Payment Modal */}
+      {isRecordPaymentOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150 text-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400 shrink-0">
+                <Receipt className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Record & Verify Subscription Payment</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Manually record a venue&apos;s monthly platform fee (LKR 10,000) against a bank transfer or deposit slip.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleRecordPaymentSubmit} className="space-y-4">
+              <div className="space-y-3.5">
+                <div>
+                  <label className="block font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Select Venue / Indoor Facility *
+                  </label>
+                  <select
+                    value={paymentVenueId}
+                    onChange={(e) => {
+                      setPaymentVenueId(e.target.value);
+                      const sub = subscriptions.find(s => s.venueId === e.target.value);
+                      if (sub) {
+                        setPaymentAmount(sub.monthlyPrice);
+                      }
+                    }}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white text-xs focus:outline-none focus:border-purple-500"
+                    required
+                  >
+                    {venues.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name} ({v.district} – {v.city})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                      Billing Month *
+                    </label>
+                    <input
+                      type="month"
+                      value={billingMonth}
+                      onChange={(e) => setBillingMonth(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-mono text-xs focus:outline-none focus:border-purple-500"
+                      required
+                    />
+                    <span className="text-[10px] text-slate-500 mt-1 block">Full month coverage</span>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                      Amount (LKR) *
+                    </label>
+                    <input
+                      type="number"
+                      step="500"
+                      min="1000"
+                      value={paymentAmount}
+                      onChange={(e) => setPaymentAmount(Number(e.target.value))}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-mono font-bold text-xs focus:outline-none focus:border-purple-500"
+                      required
+                    />
+                    <span className="text-[10px] text-slate-500 mt-1 block">Standard fee: LKR 10,000</span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                      Payment Method *
+                    </label>
+                    <select
+                      value={paymentMethod}
+                      onChange={(e) => setPaymentMethod(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white text-xs focus:outline-none focus:border-purple-500"
+                    >
+                      <option value="Bank Transfer (BOC)">Bank Transfer (BOC)</option>
+                      <option value="Bank Transfer (Commercial Bank)">Bank Transfer (Commercial Bank)</option>
+                      <option value="Bank Transfer (HNB)">Bank Transfer (HNB)</option>
+                      <option value="Bank Transfer (Sampath Bank)">Bank Transfer (Sampath Bank)</option>
+                      <option value="Bank Deposit Slip">Bank Deposit Slip</option>
+                      <option value="Cash at Head Office">Cash at Head Office</option>
+                      <option value="Cheque Deposit">Cheque Deposit</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                      Slip / Txn Reference No *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. TXN-BOC-849201 or SLIP-449"
+                      value={paymentRefNumber}
+                      onChange={(e) => setPaymentRefNumber(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-mono text-xs placeholder:text-slate-600 focus:outline-none focus:border-purple-500"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                    Reconciliation Notes / Remarks
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="e.g. Bank statement checked and verified by Super Admin; slip verified."
+                    value={paymentNotes}
+                    onChange={(e) => setPaymentNotes(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-purple-500 resize-none"
+                  />
+                </div>
+
+                <div className="p-3 rounded-xl bg-purple-950/40 border border-purple-800/40 flex items-start gap-2.5 text-[11px] text-purple-200">
+                  <CheckCircle2 className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-white">Manual Verification by Super Admin:</span> Submitting this form updates the venue&apos;s subscription standing to <span className="font-semibold text-emerald-400">&apos;active&apos;</span> and logs an immutable audit payment slip with verified status.
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-800 flex items-center justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setIsRecordPaymentOpen(false)}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold shadow-lg shadow-purple-600/30 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Verify & Record Payment</span>
                 </button>
               </div>
             </form>

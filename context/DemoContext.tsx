@@ -10,7 +10,8 @@ import {
   BookingStatus, 
   PaymentCollectionStatus, 
   TimeSlot, 
-  CommissionRecord,
+  VenueSubscription,
+  SubscriptionPayment,
   AdminAccount
 } from '@/types';
 import { 
@@ -18,7 +19,9 @@ import {
   INITIAL_FACILITIES, 
   INITIAL_PRICING_RULES, 
   INITIAL_BOOKINGS,
-  INITIAL_ADMIN_ACCOUNTS
+  INITIAL_ADMIN_ACCOUNTS,
+  INITIAL_VENUE_SUBSCRIPTIONS,
+  INITIAL_SUBSCRIPTION_PAYMENTS
 } from '@/data/sampleData';
 
 interface DemoContextType {
@@ -28,8 +31,8 @@ interface DemoContextType {
   pricingRules: PricingRule[];
   bookings: DemoBooking[];
   activeRole: DemoRole;
-  commissionRate: number;
-  settledBookingIds: string[];
+  subscriptions: VenueSubscription[];
+  subscriptionPayments: SubscriptionPayment[];
   adminAccounts: AdminAccount[];
   currentAdmin: AdminAccount | null;
   
@@ -69,10 +72,10 @@ interface DemoContextType {
   addVenue: (venue: Omit<Venue, 'id' | 'slug'>) => void;
   toggleVenueActive: (id: string) => void;
   
-  // Commission operations
-  setCommissionRate: (rate: number) => void;
-  settleVenueCommission: (bookingId: string) => void;
-  getCommissionRecords: () => CommissionRecord[];
+  // Subscription operations (Fixed LKR 10,000/month model)
+  recordSubscriptionPayment: (payment: Omit<SubscriptionPayment, 'id' | 'paymentRef'>) => SubscriptionPayment;
+  updateSubscriptionStatus: (subscriptionId: string, status: VenueSubscription['status']) => void;
+  updateMonthlyPrice: (subscriptionId: string, price: number) => void;
   
   // Booking Modal helper
   isBookingModalOpen: boolean;
@@ -96,8 +99,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const [facilities, setFacilities] = useState<Facility[]>(INITIAL_FACILITIES);
   const [pricingRules, setPricingRules] = useState<PricingRule[]>(INITIAL_PRICING_RULES);
   const [bookings, setBookings] = useState<DemoBooking[]>(INITIAL_BOOKINGS);
-  const [commissionRate, setCommissionRateState] = useState<number>(5);
-  const [settledBookingIds, setSettledBookingIds] = useState<string[]>([]);
+  const [subscriptions, setSubscriptions] = useState<VenueSubscription[]>(INITIAL_VENUE_SUBSCRIPTIONS);
+  const [subscriptionPayments, setSubscriptionPayments] = useState<SubscriptionPayment[]>(INITIAL_SUBSCRIPTION_PAYMENTS);
   const [adminAccounts, setAdminAccounts] = useState<AdminAccount[]>(INITIAL_ADMIN_ACCOUNTS);
   const [currentAdmin, setCurrentAdmin] = useState<AdminAccount | null>(null);
   
@@ -131,8 +134,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       const savedFacilities = localStorage.getItem(`${STORAGE_KEY_PREFIX}facilities`);
       const savedPricing = localStorage.getItem(`${STORAGE_KEY_PREFIX}pricing`);
       const savedBookings = localStorage.getItem(`${STORAGE_KEY_PREFIX}bookings`);
-      const savedRate = localStorage.getItem(`${STORAGE_KEY_PREFIX}comm_rate`);
-      const savedSettled = localStorage.getItem(`${STORAGE_KEY_PREFIX}settled`);
+      const savedSubscriptions = localStorage.getItem(`${STORAGE_KEY_PREFIX}subscriptions`);
+      const savedSubPayments = localStorage.getItem(`${STORAGE_KEY_PREFIX}sub_payments`);
       const savedRole = localStorage.getItem(`${STORAGE_KEY_PREFIX}role`);
       const savedAccounts = localStorage.getItem(`${STORAGE_KEY_PREFIX}accounts`);
       const savedAdmin = localStorage.getItem(`${STORAGE_KEY_PREFIX}current_admin`);
@@ -141,8 +144,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       if (savedFacilities) setFacilities(JSON.parse(savedFacilities));
       if (savedPricing) setPricingRules(JSON.parse(savedPricing));
       if (savedBookings) setBookings(JSON.parse(savedBookings));
-      if (savedRate) setCommissionRateState(Number(savedRate));
-      if (savedSettled) setSettledBookingIds(JSON.parse(savedSettled));
+      if (savedSubscriptions) setSubscriptions(JSON.parse(savedSubscriptions));
+      if (savedSubPayments) setSubscriptionPayments(JSON.parse(savedSubPayments));
       if (savedRole) setActiveRole(savedRole as DemoRole);
       if (savedAccounts) setAdminAccounts(JSON.parse(savedAccounts));
       if (savedAdmin) setCurrentAdmin(JSON.parse(savedAdmin));
@@ -181,8 +184,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(`${STORAGE_KEY_PREFIX}facilities`, JSON.stringify(facilities));
       localStorage.setItem(`${STORAGE_KEY_PREFIX}pricing`, JSON.stringify(pricingRules));
       localStorage.setItem(`${STORAGE_KEY_PREFIX}bookings`, JSON.stringify(bookings));
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}comm_rate`, commissionRate.toString());
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}settled`, JSON.stringify(settledBookingIds));
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}subscriptions`, JSON.stringify(subscriptions));
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}sub_payments`, JSON.stringify(subscriptionPayments));
       localStorage.setItem(`${STORAGE_KEY_PREFIX}role`, activeRole);
       localStorage.setItem(`${STORAGE_KEY_PREFIX}accounts`, JSON.stringify(adminAccounts));
       if (currentAdmin) {
@@ -193,7 +196,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore
     }
-  }, [venues, facilities, pricingRules, bookings, commissionRate, settledBookingIds, activeRole, adminAccounts, currentAdmin, isHydrated]);
+  }, [venues, facilities, pricingRules, bookings, subscriptions, subscriptionPayments, activeRole, adminAccounts, currentAdmin, isHydrated]);
 
   // Pricing engine
   const calculatePriceForSlot = (
@@ -440,6 +443,20 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       slug
     };
     setVenues(prev => [...prev, newVenue]);
+
+    // Automatically create standard monthly subscription for new partner venue
+    const newSub: VenueSubscription = {
+      id: `sub-${newVenue.id}`,
+      venueId: newVenue.id,
+      planName: 'Standard Venue Monthly',
+      monthlyPrice: 10000,
+      status: 'active',
+      currentPeriodStart: new Date().toISOString().split('T')[0],
+      currentPeriodEnd: new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0],
+      nextBillingDate: new Date(Date.now() + 31 * 86400000).toISOString().split('T')[0],
+      gracePeriodUntil: new Date(Date.now() + 37 * 86400000).toISOString().split('T')[0],
+    };
+    setSubscriptions(prev => [...prev, newSub]);
   };
 
   const toggleVenueActive = (id: string) => {
@@ -448,34 +465,52 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  // Commission operations
-  const setCommissionRate = (rate: number) => {
-    setCommissionRateState(rate);
+  // Subscription operations (Fixed LKR 10,000/month model)
+  const recordSubscriptionPayment = (
+    data: Omit<SubscriptionPayment, 'id' | 'paymentRef'>
+  ): SubscriptionPayment => {
+    const newPayment: SubscriptionPayment = {
+      ...data,
+      id: `subpay-${Date.now()}`,
+      paymentRef: `SUB-PAY-${Math.floor(100000 + Math.random() * 900000)}`,
+    };
+
+    setSubscriptionPayments(prev => [newPayment, ...prev]);
+
+    // Extend subscription current period and set status to active
+    setSubscriptions(prev =>
+      prev.map(sub => {
+        if (sub.id === data.subscriptionId || sub.venueId === data.venueId) {
+          return {
+            ...sub,
+            status: 'active',
+            currentPeriodStart: data.billingPeriodStart || sub.currentPeriodStart,
+            currentPeriodEnd: data.billingPeriodEnd || sub.currentPeriodEnd,
+            nextBillingDate: data.billingPeriodEnd
+              ? new Date(new Date(data.billingPeriodEnd).getTime() + 86400000).toISOString().split('T')[0]
+              : sub.nextBillingDate,
+          };
+        }
+        return sub;
+      })
+    );
+
+    return newPayment;
   };
 
-  const settleVenueCommission = (bookingId: string) => {
-    setSettledBookingIds(prev => [...prev, bookingId]);
+  const updateSubscriptionStatus = (
+    subscriptionId: string,
+    status: VenueSubscription['status']
+  ) => {
+    setSubscriptions(prev =>
+      prev.map(sub => (sub.id === subscriptionId ? { ...sub, status } : sub))
+    );
   };
 
-  const getCommissionRecords = (): CommissionRecord[] => {
-    return bookings.map(b => {
-      const isSettled = settledBookingIds.includes(b.id);
-      const commissionAmount = Math.round((b.totalPrice * commissionRate) / 100);
-      return {
-        id: `comm-${b.id}`,
-        bookingId: b.id,
-        venueId: b.venueId,
-        venueName: b.venueName,
-        bookingRef: b.bookingRef,
-        bookingAmount: b.totalPrice,
-        commissionRate,
-        commissionAmount,
-        bookingStatus: b.status,
-        settlementStatus: isSettled ? 'settled' : 'outstanding',
-        settledAt: isSettled ? new Date().toISOString() : undefined,
-        date: b.date,
-      };
-    });
+  const updateMonthlyPrice = (subscriptionId: string, price: number) => {
+    setSubscriptions(prev =>
+      prev.map(sub => (sub.id === subscriptionId ? { ...sub, monthlyPrice: price } : sub))
+    );
   };
 
   const openBookingModal = (venueId?: string, facilityId?: string) => {
@@ -494,6 +529,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}facilities`);
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}pricing`);
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}bookings`);
+      localStorage.removeItem(`${STORAGE_KEY_PREFIX}subscriptions`);
+      localStorage.removeItem(`${STORAGE_KEY_PREFIX}sub_payments`);
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}comm_rate`);
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}settled`);
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}role`);
@@ -506,8 +543,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     setFacilities(INITIAL_FACILITIES);
     setPricingRules(INITIAL_PRICING_RULES);
     setBookings(INITIAL_BOOKINGS);
-    setCommissionRateState(5);
-    setSettledBookingIds([]);
+    setSubscriptions(INITIAL_VENUE_SUBSCRIPTIONS);
+    setSubscriptionPayments(INITIAL_SUBSCRIPTION_PAYMENTS);
     setAdminAccounts(INITIAL_ADMIN_ACCOUNTS);
     setCurrentAdmin(null);
     setActiveRole('customer');
@@ -521,8 +558,8 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         pricingRules,
         bookings,
         activeRole,
-        commissionRate,
-        settledBookingIds,
+        subscriptions,
+        subscriptionPayments,
         adminAccounts,
         currentAdmin,
         theme,
@@ -547,9 +584,9 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         updateVenue,
         addVenue,
         toggleVenueActive,
-        setCommissionRate,
-        settleVenueCommission,
-        getCommissionRecords,
+        recordSubscriptionPayment,
+        updateSubscriptionStatus,
+        updateMonthlyPrice,
         isBookingModalOpen,
         bookingModalVenueId,
         bookingModalFacilityId,
