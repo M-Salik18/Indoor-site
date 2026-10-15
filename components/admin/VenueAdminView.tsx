@@ -9,21 +9,21 @@ import PricingEditor from '@/components/admin/PricingEditor';
 import FacilityManager from '@/components/admin/FacilityManager';
 import VenueSettingsEditor from '@/components/admin/VenueSettingsEditor';
 import { useRouter } from 'next/navigation';
-import { 
-  Building2, 
-  Calendar, 
-  DollarSign, 
-  Clock, 
-  CheckCircle2, 
-  XCircle, 
-  AlertTriangle, 
-  Sliders, 
-  Layers, 
-  Settings, 
-  Filter, 
-  Eye, 
-  Banknote, 
-  ShieldCheck, 
+import {
+  Building2,
+  Calendar,
+  DollarSign,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Sliders,
+  Layers,
+  Settings,
+  Filter,
+  Eye,
+  Banknote,
+  ShieldCheck,
   Sparkles,
   Phone,
   User,
@@ -34,12 +34,12 @@ import {
 
 export default function VenueAdminView() {
   const router = useRouter();
-  const { 
-    venues, 
-    facilities, 
-    bookings, 
-    subscriptions, 
-    updateBookingStatus, 
+  const {
+    venues,
+    facilities,
+    bookings,
+    subscriptions,
+    updateBookingStatus,
     updatePaymentStatus,
     openBookingModal,
     currentAdmin,
@@ -83,7 +83,7 @@ export default function VenueAdminView() {
   const upcomingBookings = venueBookings.filter(b => b.date >= todayStr && b.status === 'confirmed');
   const completedBookings = venueBookings.filter(b => b.status === 'completed');
   const cancelledBookings = venueBookings.filter(b => b.status === 'cancelled');
-  
+
   const totalGrossValue = venueBookings
     .filter(b => b.status !== 'cancelled')
     .reduce((sum, b) => sum + b.totalPrice, 0);
@@ -107,7 +107,7 @@ export default function VenueAdminView() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 py-6 sm:py-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
-        
+
         {/* Top Venue Header & Selector */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -190,11 +190,11 @@ export default function VenueAdminView() {
             )}
 
             <button
-              onClick={() => openBookingModal(activeVenueId)}
+              onClick={() => openBookingModal(activeVenueId, undefined, true)}
               className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs shadow-md shadow-emerald-500/20 transition-all flex items-center gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Simulate New Booking</span>
+              <span>Book for Customer</span>
             </button>
           </div>
         </div>
@@ -214,11 +214,10 @@ export default function VenueAdminView() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${
-                  isActive
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${isActive
                     ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
                     : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
-                }`}
+                  }`}
               >
                 <Icon className="w-4 h-4" />
                 <span>{tab.label}</span>
@@ -230,10 +229,10 @@ export default function VenueAdminView() {
         {/* ================= TAB 1: OVERVIEW ================= */}
         {activeTab === 'overview' && (
           <div className="space-y-8">
-            
+
             {/* Metric Cards (Section 11) */}
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5 sm:gap-4">
-              
+
               <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
                   Today&apos;s Bookings
@@ -379,7 +378,7 @@ export default function VenueAdminView() {
         {/* ================= TAB 2: BOOKING MANAGEMENT ================= */}
         {activeTab === 'bookings' && (
           <div className="space-y-6">
-            
+
             {/* Filter Bar */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-xs items-center">
               <div>
@@ -474,7 +473,7 @@ export default function VenueAdminView() {
                   <tbody className="divide-y divide-slate-800/80">
                     {displayedBookings.map((b) => (
                       <tr key={b.id} className="hover:bg-slate-950/40">
-                        
+
                         {/* Ref # */}
                         <td className="py-3.5 px-4 font-mono font-bold text-emerald-400">
                           {b.bookingRef}
@@ -510,23 +509,21 @@ export default function VenueAdminView() {
 
                         {/* Status */}
                         <td className="py-3.5 px-4">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                            b.status === 'confirmed' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' :
-                            b.status === 'completed' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                            b.status === 'cancelled' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
-                            'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                          }`}>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${b.status === 'confirmed' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' :
+                              b.status === 'completed' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                                b.status === 'cancelled' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
+                                  'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                            }`}>
                             {b.status}
                           </span>
                         </td>
 
                         {/* Payment */}
                         <td className="py-3.5 px-4">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                            b.paymentStatus === 'collected_at_venue'
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${b.paymentStatus === 'collected_at_venue'
                               ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                               : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                          }`}>
+                            }`}>
                             {b.paymentStatus === 'collected_at_venue' ? 'Collected' : 'Pending'}
                           </span>
                         </td>

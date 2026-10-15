@@ -12,7 +12,12 @@ import {
   TimeSlot, 
   VenueSubscription,
   SubscriptionPayment,
-  AdminAccount
+  AdminAccount,
+  PermanentBooking,
+  ReleasedOccurrence,
+  OccurrenceView,
+  OccurrenceStatus,
+  DayOfWeek
 } from '@/types';
 import { 
   INITIAL_VENUES, 
@@ -21,7 +26,8 @@ import {
   INITIAL_BOOKINGS,
   INITIAL_ADMIN_ACCOUNTS,
   INITIAL_VENUE_SUBSCRIPTIONS,
-  INITIAL_SUBSCRIPTION_PAYMENTS
+  INITIAL_SUBSCRIPTION_PAYMENTS,
+  INITIAL_PERMANENT_BOOKINGS
 } from '@/data/sampleData';
 
 interface DemoContextType {
@@ -35,6 +41,7 @@ interface DemoContextType {
   subscriptionPayments: SubscriptionPayment[];
   adminAccounts: AdminAccount[];
   currentAdmin: AdminAccount | null;
+  permanentBookings: PermanentBooking[];
   
   // Auth & Admin operations
   loginAdmin: (usernameOrIndoor: string, password: string) => { success: boolean; account?: AdminAccount; error?: string };
@@ -54,6 +61,14 @@ interface DemoContextType {
   addBooking: (booking: Omit<DemoBooking, 'id' | 'bookingRef' | 'createdAt'>) => DemoBooking;
   updateBookingStatus: (id: string, status: BookingStatus) => void;
   updatePaymentStatus: (id: string, status: PaymentCollectionStatus) => void;
+  
+  // Permanent Bookings operations
+  addPermanentBooking: (data: Omit<PermanentBooking, 'id' | 'bookingRef' | 'createdAt' | 'releasedOccurrences'>) => { success: boolean; booking?: PermanentBooking; error?: string };
+  updatePermanentBooking: (booking: PermanentBooking) => { success: boolean; error?: string };
+  cancelPermanentBooking: (id: string, reason?: string) => void;
+  releaseOccurrence: (permanentBookingId: string, date: string, reason?: string) => { success: boolean; error?: string };
+  unreleaseOccurrence: (permanentBookingId: string, date: string) => { success: boolean; error?: string };
+  getOccurrencesForPermanentBooking: (permanentBookingId: string, weeksAhead?: number) => OccurrenceView[];
   
   // Pricing engine & operations
   calculatePriceForSlot: (venueId: string, facilityId: string, date: string, startTime: string) => number;
@@ -81,7 +96,8 @@ interface DemoContextType {
   isBookingModalOpen: boolean;
   bookingModalVenueId: string | null;
   bookingModalFacilityId: string | null;
-  openBookingModal: (venueId?: string, facilityId?: string) => void;
+  bookingModalIsAdmin: boolean;
+  openBookingModal: (venueId?: string, facilityId?: string, isAdmin?: boolean) => void;
   closeBookingModal: () => void;
   
   // Reset demo
@@ -103,11 +119,13 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const [subscriptionPayments, setSubscriptionPayments] = useState<SubscriptionPayment[]>(INITIAL_SUBSCRIPTION_PAYMENTS);
   const [adminAccounts, setAdminAccounts] = useState<AdminAccount[]>(INITIAL_ADMIN_ACCOUNTS);
   const [currentAdmin, setCurrentAdmin] = useState<AdminAccount | null>(null);
+  const [permanentBookings, setPermanentBookings] = useState<PermanentBooking[]>(INITIAL_PERMANENT_BOOKINGS);
   
   // Modal quick access
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [bookingModalVenueId, setBookingModalVenueId] = useState<string | null>(null);
   const [bookingModalFacilityId, setBookingModalFacilityId] = useState<string | null>(null);
+  const [bookingModalIsAdmin, setBookingModalIsAdmin] = useState(false);
 
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
 
@@ -136,6 +154,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       const savedBookings = localStorage.getItem(`${STORAGE_KEY_PREFIX}bookings`);
       const savedSubscriptions = localStorage.getItem(`${STORAGE_KEY_PREFIX}subscriptions`);
       const savedSubPayments = localStorage.getItem(`${STORAGE_KEY_PREFIX}sub_payments`);
+      const savedPerm = localStorage.getItem(`${STORAGE_KEY_PREFIX}permanent_bookings`);
       const savedRole = localStorage.getItem(`${STORAGE_KEY_PREFIX}role`);
       const savedAccounts = localStorage.getItem(`${STORAGE_KEY_PREFIX}accounts`);
       const savedAdmin = localStorage.getItem(`${STORAGE_KEY_PREFIX}current_admin`);
@@ -146,6 +165,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       if (savedBookings) setBookings(JSON.parse(savedBookings));
       if (savedSubscriptions) setSubscriptions(JSON.parse(savedSubscriptions));
       if (savedSubPayments) setSubscriptionPayments(JSON.parse(savedSubPayments));
+      if (savedPerm) setPermanentBookings(JSON.parse(savedPerm));
       if (savedRole) setActiveRole(savedRole as DemoRole);
       if (savedAccounts) setAdminAccounts(JSON.parse(savedAccounts));
       if (savedAdmin) setCurrentAdmin(JSON.parse(savedAdmin));
@@ -186,6 +206,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(`${STORAGE_KEY_PREFIX}bookings`, JSON.stringify(bookings));
       localStorage.setItem(`${STORAGE_KEY_PREFIX}subscriptions`, JSON.stringify(subscriptions));
       localStorage.setItem(`${STORAGE_KEY_PREFIX}sub_payments`, JSON.stringify(subscriptionPayments));
+      localStorage.setItem(`${STORAGE_KEY_PREFIX}permanent_bookings`, JSON.stringify(permanentBookings));
       localStorage.setItem(`${STORAGE_KEY_PREFIX}role`, activeRole);
       localStorage.setItem(`${STORAGE_KEY_PREFIX}accounts`, JSON.stringify(adminAccounts));
       if (currentAdmin) {
@@ -196,7 +217,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore
     }
-  }, [venues, facilities, pricingRules, bookings, subscriptions, subscriptionPayments, activeRole, adminAccounts, currentAdmin, isHydrated]);
+  }, [venues, facilities, pricingRules, bookings, subscriptions, subscriptionPayments, permanentBookings, activeRole, adminAccounts, currentAdmin, isHydrated]);
 
   // Pricing engine
   const calculatePriceForSlot = (
@@ -237,6 +258,24 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     return venue ? venue.startingPricePerHour : 2500;
   };
 
+  // Helpers for date, time, and Sri Lankan phone numbers
+  const DAYS_OF_WEEK: DayOfWeek[] = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  const getDayOfWeekName = (dateStr: string): DayOfWeek => {
+    const d = new Date(dateStr + 'T12:00:00Z');
+    return DAYS_OF_WEEK[d.getUTCDay()];
+  };
+
+  const toMinutes = (timeStr: string) => {
+    const [h = 0, m = 0] = timeStr.split(':').map(Number);
+    return h === 0 ? 24 * 60 : h * 60 + m;
+  };
+
+  const isValidSriLankanPhone = (phone: string): boolean => {
+    const cleaned = phone.replace(/[\s\-\(\)]/g, '');
+    return /^(?:\+94|0094|94|0)?[1-9][0-9]{8}$/.test(cleaned);
+  };
+
   // Slot generator with live booking checks for 30-minute intervals
   const getSlotsForFacilityAndDate = (facilityId: string, date: string): TimeSlot[] => {
     const facility = facilities.find(f => f.id === facilityId);
@@ -258,10 +297,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       b => b.facilityId === facilityId && b.date === date && b.status !== 'cancelled'
     );
 
-    const toMinutes = (timeStr: string) => {
-      const [h, m = 0] = timeStr.split(':').map(Number);
-      return h === 0 ? 24 * 60 : h * 60 + m;
-    };
+    const dayOfWeekName = getDayOfWeekName(date);
 
     return slotTimes.map(h => {
       const [hourNum, minNum] = h.split(':').map(Number);
@@ -284,15 +320,35 @@ export function DemoProvider({ children }: { children: ReactNode }) {
 
       const displayTime = formatDisplay(hourNum, minNum);
 
-      // Check if this 30-minute slot overlaps any booking
+      // Check if this 30-minute slot overlaps an ordinary booking
       const slotStartMin = hourNum * 60 + minNum;
       const slotEndMin = slotStartMin + 30;
 
-      const isBooked = dayBookings.some(b => {
+      const isDirectlyBooked = dayBookings.some(b => {
         const bStartMin = toMinutes(b.startTime);
         const bEndMin = toMinutes(b.endTime);
         return Math.max(slotStartMin, bStartMin) < Math.min(slotEndMin, bEndMin);
       });
+
+      // Check if this slot is reserved by an active permanent booking
+      // (Unless that specific date occurrence was released by the venue admin!)
+      const isPermanentlyReserved = permanentBookings.some(p => {
+        if (p.facilityId !== facilityId) return false;
+        if (p.status !== 'active') return false;
+        if (p.dayOfWeek !== dayOfWeekName) return false;
+        if (date < p.effectiveStartDate) return false;
+        if (p.effectiveEndDate && date > p.effectiveEndDate) return false;
+
+        // If admin released this specific occurrence, slot is available!
+        const isReleased = p.releasedOccurrences.some(r => r.date === date);
+        if (isReleased) return false;
+
+        const pStartMin = toMinutes(p.startTime);
+        const pEndMin = toMinutes(p.endTime);
+        return Math.max(slotStartMin, pStartMin) < Math.min(slotEndMin, pEndMin);
+      });
+
+      const isBooked = isDirectlyBooked || isPermanentlyReserved;
 
       // Price per 30-minute session is half of the calculated hourly rate
       const hourlyPrice = calculatePriceForSlot(venueId, facilityId, date, h);
@@ -513,14 +569,291 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const openBookingModal = (venueId?: string, facilityId?: string) => {
+  // ================= PERMANENT BOOKINGS ENGINE =================
+  const checkPermanentBookingOverlap = (
+    candidate: {
+      id?: string;
+      facilityId: string;
+      dayOfWeek: DayOfWeek;
+      startTime: string;
+      endTime: string;
+      effectiveStartDate: string;
+      effectiveEndDate?: string;
+    },
+    existingList: PermanentBooking[]
+  ): string | null => {
+    const candStartMin = toMinutes(candidate.startTime);
+    const candEndMin = toMinutes(candidate.endTime);
+    const candStartDate = candidate.effectiveStartDate;
+    const candEndDate = candidate.effectiveEndDate || '9999-12-31';
+
+    for (const p of existingList) {
+      if (p.id === candidate.id) continue;
+      if (p.status !== 'active') continue;
+      if (p.facilityId !== candidate.facilityId) continue;
+      if (p.dayOfWeek !== candidate.dayOfWeek) continue;
+
+      // Check date range overlap
+      const pEndDate = p.effectiveEndDate || '9999-12-31';
+      const datesOverlap = candStartDate <= pEndDate && candEndDate >= p.effectiveStartDate;
+      if (!datesOverlap) continue;
+
+      // Check time range overlap
+      const pStartMin = toMinutes(p.startTime);
+      const pEndMin = toMinutes(p.endTime);
+      const timesOverlap = Math.max(candStartMin, pStartMin) < Math.min(candEndMin, pEndMin);
+
+      if (timesOverlap) {
+        return `Overlap detected: ${p.facilityName} is already permanently reserved on ${p.dayOfWeek}s from ${p.startTime} to ${p.endTime} by ${p.customerName} (${p.bookingRef}).`;
+      }
+    }
+
+    return null;
+  };
+
+  const addPermanentBooking = (
+    data: Omit<PermanentBooking, 'id' | 'bookingRef' | 'createdAt' | 'releasedOccurrences'>
+  ): { success: boolean; booking?: PermanentBooking; error?: string } => {
+    if (!data.customerName.trim()) {
+      return { success: false, error: 'Customer name is required.' };
+    }
+    if (!data.customerPhone.trim() || !isValidSriLankanPhone(data.customerPhone)) {
+      return { success: false, error: 'Please enter a valid Sri Lankan mobile number (e.g. 077 123 4567 or +94 77 123 4567).' };
+    }
+    const startMin = toMinutes(data.startTime);
+    const endMin = toMinutes(data.endTime);
+    if (endMin <= startMin) {
+      return { success: false, error: 'End time must be later than start time.' };
+    }
+    if (data.effectiveEndDate && data.effectiveEndDate < data.effectiveStartDate) {
+      return { success: false, error: 'Effective end date cannot be earlier than effective start date.' };
+    }
+
+    const overlapError = checkPermanentBookingOverlap(data, permanentBookings);
+    if (overlapError) {
+      return { success: false, error: overlapError };
+    }
+
+    const randomRef = Math.floor(1000 + Math.random() * 9000);
+    const newBooking: PermanentBooking = {
+      ...data,
+      id: `perm-${Date.now()}`,
+      bookingRef: `PERM-${randomRef}`,
+      createdAt: new Date().toISOString(),
+      releasedOccurrences: [],
+    };
+
+    setPermanentBookings(prev => [newBooking, ...prev]);
+    return { success: true, booking: newBooking };
+  };
+
+  const updatePermanentBooking = (
+    booking: PermanentBooking
+  ): { success: boolean; error?: string } => {
+    if (!booking.customerName.trim()) {
+      return { success: false, error: 'Customer name is required.' };
+    }
+    if (!booking.customerPhone.trim() || !isValidSriLankanPhone(booking.customerPhone)) {
+      return { success: false, error: 'Please enter a valid Sri Lankan mobile number (e.g. 077 123 4567).' };
+    }
+    const startMin = toMinutes(booking.startTime);
+    const endMin = toMinutes(booking.endTime);
+    if (endMin <= startMin) {
+      return { success: false, error: 'End time must be later than start time.' };
+    }
+    if (booking.effectiveEndDate && booking.effectiveEndDate < booking.effectiveStartDate) {
+      return { success: false, error: 'Effective end date cannot be earlier than effective start date.' };
+    }
+
+    const overlapError = checkPermanentBookingOverlap(booking, permanentBookings);
+    if (overlapError) {
+      return { success: false, error: overlapError };
+    }
+
+    setPermanentBookings(prev =>
+      prev.map(p => (p.id === booking.id ? { ...booking, updatedAt: new Date().toISOString() } : p))
+    );
+    return { success: true };
+  };
+
+  const cancelPermanentBooking = (id: string, reason?: string) => {
+    setPermanentBookings(prev =>
+      prev.map(p => (p.id === id ? { 
+        ...p, 
+        status: 'cancelled', 
+        notes: reason ? `${p.notes ? p.notes + ' • ' : ''}Cancelled: ${reason}` : p.notes,
+        updatedAt: new Date().toISOString() 
+      } : p))
+    );
+  };
+
+  const releaseOccurrence = (
+    permanentBookingId: string, 
+    date: string, 
+    reason?: string
+  ): { success: boolean; error?: string } => {
+    const perm = permanentBookings.find(p => p.id === permanentBookingId);
+    if (!perm) return { success: false, error: 'Permanent booking not found.' };
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    if (date < todayStr) {
+      return { success: false, error: 'Cannot release a past occurrence.' };
+    }
+
+    if (perm.releasedOccurrences.some(r => r.date === date)) {
+      return { success: false, error: 'This weekly occurrence has already been released.' };
+    }
+
+    const newRelease: ReleasedOccurrence = {
+      id: `rel-${Date.now()}`,
+      permanentBookingId,
+      date,
+      releasedAt: new Date().toISOString(),
+      releasedBy: currentAdmin?.ownerName || currentAdmin?.username || 'Venue Administrator',
+      reason: reason?.trim() || undefined,
+    };
+
+    setPermanentBookings(prev =>
+      prev.map(p => (p.id === permanentBookingId ? {
+        ...p,
+        releasedOccurrences: [...p.releasedOccurrences, newRelease],
+        updatedAt: new Date().toISOString()
+      } : p))
+    );
+
+    return { success: true };
+  };
+
+  const unreleaseOccurrence = (
+    permanentBookingId: string, 
+    date: string
+  ): { success: boolean; error?: string } => {
+    const perm = permanentBookings.find(p => p.id === permanentBookingId);
+    if (!perm) return { success: false, error: 'Permanent booking not found.' };
+
+    // Check if another customer has already booked this released slot
+    const pStartMin = toMinutes(perm.startTime);
+    const pEndMin = toMinutes(perm.endTime);
+    const hasReplacementBooking = bookings.some(b => {
+      if (b.facilityId !== perm.facilityId) return false;
+      if (b.date !== date) return false;
+      if (b.status === 'cancelled') return false;
+      const bStartMin = toMinutes(b.startTime);
+      const bEndMin = toMinutes(b.endTime);
+      return Math.max(pStartMin, bStartMin) < Math.min(pEndMin, bEndMin);
+    });
+
+    if (hasReplacementBooking) {
+      return { 
+        success: false, 
+        error: 'Cannot reclaim this slot: Another customer has already booked this released date and time.' 
+      };
+    }
+
+    setPermanentBookings(prev =>
+      prev.map(p => (p.id === permanentBookingId ? {
+        ...p,
+        releasedOccurrences: p.releasedOccurrences.filter(r => r.date !== date),
+        updatedAt: new Date().toISOString()
+      } : p))
+    );
+
+    return { success: true };
+  };
+
+  const getOccurrencesForPermanentBooking = (
+    permanentBookingId: string,
+    weeksAhead: number = 8
+  ): OccurrenceView[] => {
+    const perm = permanentBookings.find(p => p.id === permanentBookingId);
+    if (!perm) return [];
+
+    const targetDayIdx = DAYS_OF_WEEK.indexOf(perm.dayOfWeek);
+    if (targetDayIdx === -1) return [];
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const occurrences: OccurrenceView[] = [];
+    
+    // Look 2 weeks back to show recent history, and up to weeksAhead weeks forward
+    const cur = new Date();
+    cur.setHours(12, 0, 0, 0);
+    cur.setDate(cur.getDate() - 14);
+
+    const endDateLimit = perm.effectiveEndDate 
+      ? new Date(perm.effectiveEndDate + 'T23:59:59Z') 
+      : new Date(Date.now() + (weeksAhead + 3) * 7 * 86400000);
+
+    const pStartMin = toMinutes(perm.startTime);
+    const pEndMin = toMinutes(perm.endTime);
+
+    while (cur <= endDateLimit && occurrences.length < weeksAhead + 4) {
+      if (cur.getDay() === targetDayIdx) {
+        const occurrenceDateStr = cur.toISOString().split('T')[0];
+
+        if (occurrenceDateStr >= perm.effectiveStartDate && (!perm.effectiveEndDate || occurrenceDateStr <= perm.effectiveEndDate)) {
+          const isPast = occurrenceDateStr < todayStr;
+          const releasedInfo = perm.releasedOccurrences.find(r => r.date === occurrenceDateStr);
+
+          // Find replacement booking if released
+          let replacementBooking: DemoBooking | undefined;
+          if (releasedInfo) {
+            replacementBooking = bookings.find(b => {
+              if (b.facilityId !== perm.facilityId) return false;
+              if (b.date !== occurrenceDateStr) return false;
+              if (b.status === 'cancelled') return false;
+              const bStartMin = toMinutes(b.startTime);
+              const bEndMin = toMinutes(b.endTime);
+              return Math.max(pStartMin, bStartMin) < Math.min(pEndMin, bEndMin);
+            });
+          }
+
+          let status: OccurrenceStatus = 'reserved';
+          if (perm.status === 'cancelled') {
+            status = 'cancelled';
+          } else if (isPast) {
+            status = 'completed';
+          } else if (releasedInfo) {
+            status = replacementBooking ? 'booked_by_other' : 'released';
+          } else {
+            status = 'reserved';
+          }
+
+          const displayDate = cur.toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          });
+
+          occurrences.push({
+            date: occurrenceDateStr,
+            displayDate,
+            dayOfWeek: perm.dayOfWeek,
+            startTime: perm.startTime,
+            endTime: perm.endTime,
+            status,
+            isPast,
+            releasedInfo,
+            replacementBooking,
+          });
+        }
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    return occurrences;
+  };
+
+  const openBookingModal = (venueId?: string, facilityId?: string, isAdmin: boolean = false) => {
     setBookingModalVenueId(venueId || 'venue-axion');
     setBookingModalFacilityId(facilityId || null);
+    setBookingModalIsAdmin(Boolean(isAdmin));
     setIsBookingModalOpen(true);
   };
 
   const closeBookingModal = () => {
     setIsBookingModalOpen(false);
+    setBookingModalIsAdmin(false);
   };
 
   const resetToDefaults = () => {
@@ -531,6 +864,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}bookings`);
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}subscriptions`);
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}sub_payments`);
+      localStorage.removeItem(`${STORAGE_KEY_PREFIX}permanent_bookings`);
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}comm_rate`);
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}settled`);
       localStorage.removeItem(`${STORAGE_KEY_PREFIX}role`);
@@ -545,6 +879,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
     setBookings(INITIAL_BOOKINGS);
     setSubscriptions(INITIAL_VENUE_SUBSCRIPTIONS);
     setSubscriptionPayments(INITIAL_SUBSCRIPTION_PAYMENTS);
+    setPermanentBookings(INITIAL_PERMANENT_BOOKINGS);
     setAdminAccounts(INITIAL_ADMIN_ACCOUNTS);
     setCurrentAdmin(null);
     setActiveRole('customer');
@@ -562,6 +897,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         subscriptionPayments,
         adminAccounts,
         currentAdmin,
+        permanentBookings,
         theme,
         toggleTheme,
         loginAdmin,
@@ -573,6 +909,12 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         addBooking,
         updateBookingStatus,
         updatePaymentStatus,
+        addPermanentBooking,
+        updatePermanentBooking,
+        cancelPermanentBooking,
+        releaseOccurrence,
+        unreleaseOccurrence,
+        getOccurrencesForPermanentBooking,
         calculatePriceForSlot,
         getSlotsForFacilityAndDate,
         addPricingRule,
@@ -590,6 +932,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         isBookingModalOpen,
         bookingModalVenueId,
         bookingModalFacilityId,
+        bookingModalIsAdmin,
         openBookingModal,
         closeBookingModal,
         resetToDefaults,

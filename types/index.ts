@@ -140,3 +140,64 @@ export interface AdminAccount {
 }
 
 export type DemoRole = 'customer' | 'venue_admin' | 'super_admin';
+
+export type DayOfWeek = 
+  | 'Sunday' 
+  | 'Monday' 
+  | 'Tuesday' 
+  | 'Wednesday' 
+  | 'Thursday' 
+  | 'Friday' 
+  | 'Saturday';
+
+export type PermanentBookingStatus = 'active' | 'cancelled' | 'completed';
+
+export interface ReleasedOccurrence {
+  id: string;
+  permanentBookingId: string;
+  date: string; // YYYY-MM-DD
+  releasedAt: string; // ISO datetime
+  releasedBy: string; // admin username or name
+  reason?: string;
+}
+
+export interface PermanentBooking {
+  id: string;
+  bookingRef: string; // e.g. PERM-89102
+  venueId: string;
+  venueName: string;
+  facilityId: string;
+  facilityName: string;
+  sport: SportType;
+  customerName: string;
+  customerPhone: string; // Sri Lankan mobile e.g. 0771234567
+  dayOfWeek: DayOfWeek;
+  startTime: string; // HH:mm e.g. "20:00"
+  endTime: string;   // HH:mm e.g. "22:00"
+  effectiveStartDate: string; // YYYY-MM-DD
+  effectiveEndDate?: string;  // YYYY-MM-DD (optional)
+  status: PermanentBookingStatus;
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+  releasedOccurrences: ReleasedOccurrence[];
+}
+
+export type OccurrenceStatus = 
+  | 'reserved' 
+  | 'released' 
+  | 'booked_by_other' 
+  | 'completed' 
+  | 'cancelled';
+
+export interface OccurrenceView {
+  date: string; // YYYY-MM-DD
+  displayDate: string; // e.g. "Sunday, October 18, 2026"
+  dayOfWeek: DayOfWeek;
+  startTime: string;
+  endTime: string;
+  status: OccurrenceStatus;
+  isPast: boolean;
+  releasedInfo?: ReleasedOccurrence;
+  replacementBooking?: DemoBooking;
+}
