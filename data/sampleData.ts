@@ -1,4 +1,4 @@
-import { Venue, Facility, PricingRule, DemoBooking, AdminAccount, VenueSubscription, SubscriptionPayment } from '@/types';
+import { Venue, Facility, PricingRule, DemoBooking, AdminAccount, VenueSubscription, SubscriptionPayment, PermanentBooking } from '@/types';
 
 export const INITIAL_VENUES: Venue[] = [
   {
@@ -578,6 +578,27 @@ export const INITIAL_BOOKINGS: DemoBooking[] = [
     status: 'confirmed',
     paymentStatus: 'pending_at_venue',
     createdAt: '2026-10-10T15:20:00Z',
+  },
+  {
+    id: 'bk-replacement-01',
+    bookingRef: 'CRTL-88201',
+    venueId: 'venue-axion',
+    venueName: 'AXION – Ambetenne',
+    facilityId: 'fac-axion-pitch-1',
+    facilityName: 'Turf Pitch 1',
+    sport: 'Futsal',
+    date: '2026-10-21', // Wednesday occurrence released by Dinuka Bandara (Kandy FC)
+    startTime: '19:00',
+    endTime: '21:00',
+    durationHours: 2,
+    hourlyRate: 3000,
+    totalPrice: 6000,
+    customerName: 'Sahan Wijesinghe',
+    customerMobile: '+94 76 991 2234',
+    status: 'confirmed',
+    paymentStatus: 'pending_at_venue',
+    createdAt: '2026-10-11T09:15:00Z',
+    notes: 'Booked released weekly slot for friendly match.'
   }
 ];
 
@@ -752,4 +773,101 @@ export const INITIAL_SUBSCRIPTION_PAYMENTS: SubscriptionPayment[] = [
     recordedBy: 'Super Administrator',
     notes: 'Branch cash deposit slip uploaded and reconciled.',
   },
+];
+
+export const INITIAL_PERMANENT_BOOKINGS: PermanentBooking[] = [
+  {
+    id: 'perm-01',
+    bookingRef: 'PERM-8921',
+    venueId: 'venue-axion',
+    venueName: 'AXION – Ambetenne',
+    facilityId: 'fac-axion-badminton-1',
+    facilityName: 'Badminton Court 1',
+    sport: 'Badminton',
+    customerName: 'Amal Perera',
+    customerPhone: '0771234567',
+    dayOfWeek: 'Sunday',
+    startTime: '20:00',
+    endTime: '22:00',
+    effectiveStartDate: '2026-10-01',
+    status: 'active',
+    notes: 'Permanent weekly reservation every Sunday night. Regular shuttler group.',
+    createdAt: '2026-09-25T10:00:00Z',
+    releasedOccurrences: [
+      {
+        id: 'rel-01',
+        permanentBookingId: 'perm-01',
+        date: '2026-10-25',
+        releasedAt: '2026-10-12T08:30:00Z',
+        releasedBy: 'axion',
+        reason: 'Customer travelling out of Kandy for family wedding; requested to release slot.'
+      }
+    ]
+  },
+  {
+    id: 'perm-02',
+    bookingRef: 'PERM-4412',
+    venueId: 'venue-axion',
+    venueName: 'AXION – Ambetenne',
+    facilityId: 'fac-axion-pitch-1',
+    facilityName: 'Turf Pitch 1',
+    sport: 'Futsal',
+    customerName: 'Dinuka Bandara (Kandy FC)',
+    customerPhone: '0714567890',
+    dayOfWeek: 'Wednesday',
+    startTime: '19:00',
+    endTime: '21:00',
+    effectiveStartDate: '2026-09-01',
+    status: 'active',
+    notes: 'Weekly training session for Kandy FC squad. Floodlight booking.',
+    createdAt: '2026-08-20T14:00:00Z',
+    releasedOccurrences: [
+      {
+        id: 'rel-02',
+        permanentBookingId: 'perm-02',
+        date: '2026-10-21',
+        releasedAt: '2026-10-10T12:00:00Z',
+        releasedBy: 'axion',
+        reason: 'Team participating in tournament in Colombo.'
+      }
+    ]
+  },
+  {
+    id: 'perm-03',
+    bookingRef: 'PERM-7705',
+    venueId: 'venue-colombo-arena',
+    venueName: 'Colombo Futsal & Cricket Arena',
+    facilityId: 'fac-colombo-turf-a',
+    facilityName: 'Futsal Pitch A',
+    sport: 'Futsal',
+    customerName: 'Mahela Ratnayake',
+    customerPhone: '0779876543',
+    dayOfWeek: 'Friday',
+    startTime: '18:00',
+    endTime: '20:00',
+    effectiveStartDate: '2026-10-01',
+    status: 'active',
+    notes: 'Corporate weekly futsal league practice.',
+    createdAt: '2026-09-28T16:00:00Z',
+    releasedOccurrences: []
+  },
+  {
+    id: 'perm-04',
+    bookingRef: 'PERM-9932',
+    venueId: 'venue-metro-badminton',
+    venueName: 'Metro Badminton & Smash Club',
+    facilityId: 'fac-metro-court-1',
+    facilityName: 'Badminton Court 1',
+    sport: 'Badminton',
+    customerName: 'Nipuna Wickramasinghe',
+    customerPhone: '0702233445',
+    dayOfWeek: 'Saturday',
+    startTime: '08:00',
+    endTime: '10:00',
+    effectiveStartDate: '2026-10-01',
+    status: 'active',
+    notes: 'Morning singles training session.',
+    createdAt: '2026-10-02T09:00:00Z',
+    releasedOccurrences: []
+  }
 ];

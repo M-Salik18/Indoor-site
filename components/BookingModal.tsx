@@ -30,6 +30,7 @@ export default function BookingModal() {
     closeBookingModal, 
     bookingModalVenueId, 
     bookingModalFacilityId,
+    bookingModalIsAdmin,
     venues, 
     facilities, 
     getSlotsForFacilityAndDate, 
@@ -95,13 +96,20 @@ export default function BookingModal() {
       const todayStr = new Date().toISOString().split('T')[0];
       setSelectedDate(todayStr);
       setSelectedTimeSlots([]);
-      setCurrentStep(1);
+      setCurrentStep(bookingModalIsAdmin ? 2 : 1);
       setCreatedBooking(null);
       setEnteredOtp('');
       setOtpError('');
       setCustomerError('');
+      if (bookingModalIsAdmin) {
+        setCustomerName('');
+        setCustomerMobile('');
+      } else {
+        setCustomerName('Kavindu Senanayake');
+        setCustomerMobile('077 345 8912');
+      }
     }
-  }, [isBookingModalOpen, bookingModalVenueId, bookingModalFacilityId, facilities]);
+  }, [isBookingModalOpen, bookingModalVenueId, bookingModalFacilityId, bookingModalIsAdmin, facilities]);
 
   // When selected venue changes, update facility list
   const handleVenueSelect = (vId: string) => {
@@ -213,18 +221,27 @@ export default function BookingModal() {
     }
   };
 
+  const isValidSriLankanPhone = (phone: string): boolean => {
+    const cleaned = phone.replace(/[\s\-\(\)]/g, '');
+    return /^(?:\+94|0094|94|0)?[1-9][0-9]{8}$/.test(cleaned);
+  };
+
   // Step 4 Validation
   const handleProceedFromCustomerDetails = () => {
     if (!customerName.trim()) {
-      setCustomerError('Please enter your full name');
+      setCustomerError('Please enter the customer\'s full name');
       return;
     }
-    if (!customerMobile.trim() || customerMobile.trim().length < 9) {
-      setCustomerError('Please enter a valid Sri Lankan mobile number (e.g. 077 123 4567)');
+    if (!customerMobile.trim() || !isValidSriLankanPhone(customerMobile)) {
+      setCustomerError('Please enter a valid Sri Lankan mobile number (e.g. 077 123 4567 or +94 77 123 4567)');
       return;
     }
     setCustomerError('');
-    setCurrentStep(5); // Proceed to simulated OTP
+    if (bookingModalIsAdmin) {
+      setCurrentStep(6); // Admin skips Step 5 (OTP) completely
+    } else {
+      setCurrentStep(5); // Proceed to simulated OTP
+    }
   };
 
   // Step 5 Simulated OTP verification
@@ -240,6 +257,19 @@ export default function BookingModal() {
   // Step 6 Confirmation -> Create booking
   const handleConfirmBooking = () => {
     if (!currentFacility || selectedTimeSlots.length === 0 || !firstSlotObj || !lastSlotObj) return;
+
+    // Live recheck of availability before creating booking
+    const latestSlots = getSlotsForFacilityAndDate(currentFacility.id, selectedDate);
+    const hasOverlap = selectedTimeSlots.some(t => {
+      const found = latestSlots.find(s => s.time === t);
+      return !found || found.status === 'booked';
+    });
+
+    if (hasOverlap) {
+      alert('One or more selected time slots are no longer available. Please select another slot.');
+      setCurrentStep(3);
+      return;
+    }
 
     const effectiveHourlyRate = totalDurationHours > 0 ? Math.round(totalPrice / totalDurationHours) : 2500;
 
@@ -259,7 +289,9 @@ export default function BookingModal() {
       customerMobile: customerMobile.trim(),
       status: 'confirmed',
       paymentStatus: 'pending_at_venue',
-      notes: `Multi-session court reservation: ${selectedTimeSlots.length} x 30-min sessions (${formattedTimeRange}).`
+      notes: bookingModalIsAdmin
+        ? `Booked directly by Venue Admin on customer's behalf (${selectedTimeSlots.length} x 30-min sessions: ${formattedTimeRange}).`
+        : `Multi-session court reservation: ${selectedTimeSlots.length} x 30-min sessions (${formattedTimeRange}).`
     });
 
     setCreatedBooking(newBk);
@@ -283,23 +315,38 @@ export default function BookingModal() {
         <div className="px-6 py-4 bg-slate-950 border-b border-slate-800/80 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold text-xs">
-              {currentStep}/7
+              {bookingModalIsAdmin ? (
+                currentStep === 2 ? '1/4' :
+                currentStep === 3 ? '2/4' :
+                currentStep === 4 ? '3/4' :
+                currentStep === 6 ? '4/4' : '✓'
+              ) : (
+                `${currentStep}/7`
+              )}
             </div>
             <div>
               <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <span>Court Reservation Wizard</span>
+                <span>{bookingModalIsAdmin ? 'Book for Customer' : 'Court Reservation Wizard'}</span>
                 <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded-full border border-emerald-800/40">
-                  Prototype Demo
+                  {bookingModalIsAdmin ? 'Venue Admin' : 'Prototype Demo'}
                 </span>
               </h3>
               <p className="text-xs text-slate-400">
-                {currentStep === 1 && 'Step 1: Choose your indoor sports centre'}
-                {currentStep === 2 && 'Step 2: Select pitch, court, or table'}
-                {currentStep === 3 && 'Step 3: Select date and available time slot'}
-                {currentStep === 4 && 'Step 4: Enter contact details for confirmation'}
-                {currentStep === 5 && 'Step 5: Simulated SMS OTP verification'}
-                {currentStep === 6 && 'Step 6: Review booking summary & venue terms'}
-                {currentStep === 7 && 'Step 7: Booking confirmed! Pay at the venue'}
+                {bookingModalIsAdmin ? (
+                  currentStep === 2 ? `Step 1 of 4: Select pitch or court (${currentVenue?.name})` :
+                  currentStep === 3 ? 'Step 2 of 4: Select date and available time slot' :
+                  currentStep === 4 ? 'Step 3 of 4: Enter customer details (OTP skipped)' :
+                  currentStep === 6 ? 'Step 4 of 4: Review reservation summary & confirm' :
+                  'Booking confirmed on behalf of customer'
+                ) : (
+                  currentStep === 1 ? 'Step 1: Choose your indoor sports centre' :
+                  currentStep === 2 ? 'Step 2: Select pitch, court, or table' :
+                  currentStep === 3 ? 'Step 3: Select date and available time slot' :
+                  currentStep === 4 ? 'Step 4: Enter contact details for confirmation' :
+                  currentStep === 5 ? 'Step 5: Simulated SMS OTP verification' :
+                  currentStep === 6 ? 'Step 6: Review booking summary & venue terms' :
+                  'Step 7: Booking confirmed! Pay at the venue'
+                )}
               </p>
             </div>
           </div>
@@ -316,7 +363,11 @@ export default function BookingModal() {
         <div className="w-full bg-slate-950 h-1">
           <div 
             className="bg-gradient-to-r from-emerald-500 to-lime-400 h-1 transition-all duration-300"
-            style={{ width: `${(currentStep / 7) * 100}%` }}
+            style={{ 
+              width: bookingModalIsAdmin 
+                ? (currentStep === 2 ? '25%' : currentStep === 3 ? '50%' : currentStep === 4 ? '75%' : '100%')
+                : `${(currentStep / 7) * 100}%` 
+            }}
           />
         </div>
 
@@ -324,7 +375,7 @@ export default function BookingModal() {
         <div className="p-6 overflow-y-auto space-y-6 flex-1">
 
           {/* ================= STEP 1: SELECT VENUE ================= */}
-          {currentStep === 1 && (
+          {currentStep === 1 && !bookingModalIsAdmin && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h4 className="text-sm font-bold text-slate-200 uppercase tracking-wider">
@@ -640,12 +691,23 @@ export default function BookingModal() {
             <div className="space-y-5 max-w-lg mx-auto">
               <div>
                 <h4 className="text-base font-bold text-white mb-1">
-                  Contact Information
+                  {bookingModalIsAdmin ? 'Customer Details' : 'Contact Information'}
                 </h4>
                 <p className="text-xs text-slate-400">
-                  No account or password required. We only need your name and mobile number to issue your booking reference.
+                  {bookingModalIsAdmin
+                    ? 'Enter customer details for this direct reservation. OTP verification is bypassed.'
+                    : 'No account or password required. We only need your name and mobile number to issue your booking reference.'}
                 </p>
               </div>
+
+              {bookingModalIsAdmin && (
+                <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-300 text-xs flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-blue-400 shrink-0" />
+                  <span>
+                    <strong>Venue Admin Mode:</strong> Creating booking on customer&apos;s behalf. Phone OTP verification is skipped.
+                  </span>
+                </div>
+              )}
 
               {customerError && (
                 <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center gap-2">
@@ -657,7 +719,7 @@ export default function BookingModal() {
               <div className="space-y-4">
                 <div>
                   <label htmlFor="customer-name-input" className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                    Full Name *
+                    Customer Full Name *
                   </label>
                   <div className="relative">
                     <User className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -688,20 +750,26 @@ export default function BookingModal() {
                     />
                   </div>
                   <span className="text-[11px] text-slate-500 mt-1 block">
-                    SMS booking confirmation pass will be simulated for this number.
+                    {bookingModalIsAdmin
+                      ? 'Format: 07X XXX XXXX or +94 7X XXX XXXX.'
+                      : 'SMS booking confirmation pass will be simulated for this number.'}
                   </span>
                 </div>
               </div>
 
               <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-xs text-slate-400 flex items-center gap-2.5">
                 <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Your contact info is shared only with {currentVenue?.name} for gate verification.</span>
+                <span>
+                  {bookingModalIsAdmin
+                    ? `Booking will be recorded under ${currentVenue?.name} facility ledger.`
+                    : `Your contact info is shared only with ${currentVenue?.name} for gate verification.`}
+                </span>
               </div>
             </div>
           )}
 
           {/* ================= STEP 5: SIMULATED PHONE OTP ================= */}
-          {currentStep === 5 && (
+          {currentStep === 5 && !bookingModalIsAdmin && (
             <div className="space-y-5 max-w-md mx-auto text-center py-2">
               <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 mx-auto flex items-center justify-center">
                 <Sparkles className="w-7 h-7 text-emerald-400" />
@@ -825,9 +893,13 @@ export default function BookingModal() {
                 <div className="p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/30 flex items-start gap-2.5">
                   <CreditCard className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                   <div className="text-xs">
-                    <span className="font-bold text-emerald-300 block">Payment is made at the venue.</span>
+                    <span className="font-bold text-emerald-300 block">
+                      {bookingModalIsAdmin ? 'Payment to be collected at the venue counter' : 'Payment is made at the venue.'}
+                    </span>
                     <span className="text-slate-300">
-                      No card charge today. You pay the venue reception desk (cash or card) when you arrive to play.
+                      {bookingModalIsAdmin
+                        ? 'Collect cash or card payment when the customer arrives for their booking. You can update payment status in the admin ledger.'
+                        : 'No card charge today. You pay the venue reception desk (cash or card) when you arrive to play.'}
                     </span>
                   </div>
                 </div>
@@ -912,24 +984,44 @@ export default function BookingModal() {
                 </div>
               </div>
 
-              {/* Cross-Link into Venue Admin CTA */}
-              <div className="p-4 rounded-2xl bg-blue-950/40 border border-blue-500/40 text-left space-y-2">
-                <div className="flex items-center gap-2 text-blue-300 font-bold text-xs">
-                  <Building className="w-4 h-4 text-blue-400" />
-                  <span>Verify in Venue Admin Dashboard</span>
+              {/* Venue Admin / Customer Confirmation Action */}
+              {bookingModalIsAdmin ? (
+                <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-left space-y-2">
+                  <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                    <span>Synchronized to Venue Ledger</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    Booking <code className="text-emerald-300 font-bold">{createdBooking.bookingRef}</code> is now confirmed for <strong className="text-white">{createdBooking.customerName}</strong>. The time slot is locked and unavailable to other customers.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={closeBookingModal}
+                    className="w-full py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition-colors flex items-center justify-center gap-2"
+                  >
+                    <span>Return to Venue Dashboard</span>
+                    <Check className="w-4 h-4 stroke-[3]" />
+                  </button>
                 </div>
-                <p className="text-[11px] text-slate-300">
-                  This new booking (<code className="text-blue-300">{createdBooking.bookingRef}</code>) has been synchronized directly to the AXION Venue Admin and Super Admin data store for this session!
-                </p>
-                <button
-                  type="button"
-                  onClick={handleViewInVenueAdmin}
-                  className="w-full py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2"
-                >
-                  <span>Open AXION Venue Admin to inspect this booking</span>
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
+              ) : (
+                <div className="p-4 rounded-2xl bg-blue-950/40 border border-blue-500/40 text-left space-y-2">
+                  <div className="flex items-center gap-2 text-blue-300 font-bold text-xs">
+                    <Building className="w-4 h-4 text-blue-400" />
+                    <span>Verify in Venue Admin Dashboard</span>
+                  </div>
+                  <p className="text-[11px] text-slate-300">
+                    This new booking (<code className="text-blue-300">{createdBooking.bookingRef}</code>) has been synchronized directly to the AXION Venue Admin and Super Admin data store for this session!
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleViewInVenueAdmin}
+                    className="w-full py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition-colors flex items-center justify-center gap-2"
+                  >
+                    <span>Open AXION Venue Admin to inspect this booking</span>
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
 
             </div>
           )}
@@ -940,10 +1032,18 @@ export default function BookingModal() {
         <div className="px-6 py-4 bg-slate-950 border-t border-slate-800/80 flex items-center justify-between">
           
           {/* Back button or dismiss */}
-          {currentStep > 1 && currentStep < 7 ? (
+          {((bookingModalIsAdmin && currentStep > 2 && currentStep < 7) || (!bookingModalIsAdmin && currentStep > 1 && currentStep < 7)) ? (
             <button
               type="button"
-              onClick={() => setCurrentStep(prev => prev - 1)}
+              onClick={() => {
+                if (bookingModalIsAdmin) {
+                  if (currentStep === 6) setCurrentStep(4);
+                  else if (currentStep === 4) setCurrentStep(3);
+                  else if (currentStep === 3) setCurrentStep(2);
+                } else {
+                  setCurrentStep(prev => prev - 1);
+                }
+              }}
               className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 transition-colors flex items-center gap-1"
             >
               <ChevronLeft className="w-4 h-4" />
@@ -961,7 +1061,7 @@ export default function BookingModal() {
 
           {/* Forward Action Buttons */}
           <div className="flex items-center gap-2">
-            {currentStep === 1 && (
+            {currentStep === 1 && !bookingModalIsAdmin && (
               <button
                 type="button"
                 onClick={() => setCurrentStep(2)}
@@ -1003,12 +1103,12 @@ export default function BookingModal() {
                 onClick={handleProceedFromCustomerDetails}
                 className="px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md shadow-emerald-500/20 transition-all flex items-center gap-1.5"
               >
-                <span>Proceed to Simulated OTP</span>
+                <span>{bookingModalIsAdmin ? 'Review Booking Summary' : 'Proceed to Simulated OTP'}</span>
                 <ChevronRight className="w-4 h-4" />
               </button>
             )}
 
-            {currentStep === 5 && (
+            {currentStep === 5 && !bookingModalIsAdmin && (
               <button
                 type="button"
                 onClick={handleVerifyOtp}
@@ -1026,7 +1126,7 @@ export default function BookingModal() {
                 className="px-6 py-2.5 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-500 to-lime-500 hover:from-emerald-400 hover:to-lime-400 text-slate-950 shadow-lg shadow-emerald-500/30 transition-all flex items-center gap-1.5"
               >
                 <Check className="w-4 h-4 stroke-[3]" />
-                <span>Confirm Demo Booking</span>
+                <span>{bookingModalIsAdmin ? 'Confirm Booking for Customer' : 'Confirm Demo Booking'}</span>
               </button>
             )}
 
@@ -1036,7 +1136,7 @@ export default function BookingModal() {
                 onClick={closeBookingModal}
                 className="px-5 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white transition-colors"
               >
-                <span>Close Window</span>
+                <span>{bookingModalIsAdmin ? 'Return to Dashboard' : 'Close Window'}</span>
               </button>
             )}
           </div>
